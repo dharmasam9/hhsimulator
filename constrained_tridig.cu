@@ -23,12 +23,13 @@ void generate_constrained_tridiag_matrix(float* h_values, int* h_colIndex, int* 
 
 	// generate num_mutations random number in range (0,rows-1)
 
-	vector<int> mutations;
+	vector<pair<int,int> > mutations;
 	vector<bool> is_mutation(rows, false);
 	bool is_done = false;
 
 	int new_row, new_col;
 	int elem_location, trans_elem_location;
+	int rand_value;
 
 	// Generating mutations.
 	while(mutations.size() != 2*num_mutations){
@@ -43,37 +44,34 @@ void generate_constrained_tridiag_matrix(float* h_values, int* h_colIndex, int* 
 			elem_location = new_row*rows + new_col;
 			trans_elem_location = new_col*rows + new_row;
 
-			mutations.push_back(elem_location);
-			mutations.push_back(trans_elem_location);
-		}
+			rand_value  = rand()%10 + 2;
 
+			mutations.push_back(make_pair(elem_location, rand_value));
+			mutations.push_back(make_pair(trans_elem_location, rand_value));
+		}
 	}
 
 	// Generating non mutated part of tri-digaonal matrix
-	//First row
-	mutations.push_back(0);
-	mutations.push_back(1);
-
 	for (int i = 1; i < rows; ++i)
 	{
-		// Left one
 		if(!is_mutation[i]){
-			mutations.push_back(i*rows+i-1);
-		}
-
-		mutations.push_back(i*rows+i);
-
-		// Right one
-		if((i+1)<rows && !is_mutation[i+1]){
-			mutations.push_back(i*rows+i+1);
+			rand_value  = rand()%10 + 2;
+			mutations.push_back(make_pair((i-1)*rows + i, rand_value));
+			mutations.push_back(make_pair(i*rows + (i-1), rand_value));
 		}
 	}
 
+	// Pushing the principal diagonal
+	for (int i = 0; i < rows; ++i)
+	{	
+		rand_value  = rand()%10 + 2;
+		mutations.push_back(make_pair(i*rows+i, rand_value));	
+	}
+	
 	// Sort these mutations
-
 	sort(mutations.begin(), mutations.end());
 
-	cout << (3*rows-2) << " " << mutations.size() << endl;
+	// cout << (3*rows-2) << " " << mutations.size() << endl;
 
 	vector<int> row_sums(rows,0);
 	vector<pair<int,int> > main_indices;
@@ -81,24 +79,23 @@ void generate_constrained_tridiag_matrix(float* h_values, int* h_colIndex, int* 
 	int r,c, value;
 	for (int i = 0; i < mutations.size(); ++i)
 	{
-		r = mutations[i]/rows;
-		c = mutations[i]%rows;
-		value  = rand()%10 + 2;
+		r = (mutations[i].first)/rows;
+		c = (mutations[i].first)%rows;
 
 		h_colIndex[i] = c;
 		h_rowPtr[r]++;
-		h_values[i] = value;
+		h_values[i] = mutations[i].second;
 
-		row_sums[r] += value;
+		row_sums[r] += mutations[i].second;
 
 		if(r==c){
 			main_indices.push_back(make_pair(r,i));
 		}else{
 			// Filling left and right diagonals
 			if(r==c+1)
-				h_left[r] = value;
+				h_left[r] = mutations[i].second;
 			if(c==r+1)
-				h_right[r] = value;
+				h_right[r] = mutations[i].second;
 		}
 	}
 
@@ -121,7 +118,7 @@ void generate_constrained_tridiag_matrix(float* h_values, int* h_colIndex, int* 
 		h_principal[main_indices[i].first] = row_sums[main_indices[i].first];
 	}
 
-	cout << rows << " " << main_indices.size() << endl;
+	// cout << rows << " " << main_indices.size() << endl;
 
 	// Setting b values.
 	for (int i = 0; i < rows; ++i)
@@ -178,7 +175,7 @@ void convert_csr_to_cusp(float* values, int* colIndex, int* rowPtr, int rows, in
 int main(int argc, char const *argv[])
 {
 
-	bool ANALYSIS = false;
+	bool ANALYSIS = true;
 
 	GpuTimer tridiagTimer;
 	GpuTimer cuspZeroTimer;
@@ -207,9 +204,9 @@ int main(int argc, char const *argv[])
 	float* d_b;
 
 	int rows = atoi(argv[1]);
-	int num_mutations = atoi(argv[2]);
+	int num_mutations = (atoi(argv[2])*(rows-2))/100;
 
-	cout << num_mutations << endl;
+	//cout << num_mutations << endl;
 
 	// Allocating memory for tri diagonal
 	h_left = (float*) calloc(rows, sizeof(float));
@@ -251,7 +248,6 @@ int main(int argc, char const *argv[])
 
 	}
 	*/
-
 
 	// Copy to gpu
     cudaMemcpy(d_left, h_left, sizeof(float)*rows, cudaMemcpyHostToDevice);
