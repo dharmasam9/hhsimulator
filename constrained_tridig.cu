@@ -15,11 +15,12 @@
 #include "gpu_timer.h"
 using namespace std;
 
-
 void generate_constrained_tridiag_matrix(float* h_values, int* h_colIndex, int* h_rowPtr,
 										 float* h_b,
 										 float* h_left, float* h_principal, float* h_right,
-										 int rows, int num_mutations){
+										 int rows, int num_mutations, bool MAKE_DIAG_DOMINANT){
+
+
 
 	// generate num_mutations random number in range (0,rows-1)
 
@@ -109,15 +110,26 @@ void generate_constrained_tridiag_matrix(float* h_values, int* h_colIndex, int* 
 		sum += temp;
 	}
 
-	// Making it diagonally dominant.
-	for (int i = 0; i < main_indices.size(); ++i)
-	{
-		h_values[main_indices[i].second] = row_sums[main_indices[i].first];
+	if(MAKE_DIAG_DOMINANT){
+		// Making it diagonally dominant.
+		for (int i = 0; i < main_indices.size(); ++i)
+		{
+			h_values[main_indices[i].second] = row_sums[main_indices[i].first];
+			// Filling main diagonal
+			h_principal[main_indices[i].first] = row_sums[main_indices[i].first];
+		}
+	}else{
+		// Making it diagonally dominant.
+		for (int i = 0; i < main_indices.size(); ++i)
+		{
+			rand_value  = rand()%10 + 2;
+			h_values[main_indices[i].second] = rand_value;
+			// Filling main diagonal
+			h_principal[main_indices[i].first] = rand_value;
+		}
 
-		// Filling main diagonal
-		h_principal[main_indices[i].first] = row_sums[main_indices[i].first];
 	}
-
+	
 	// cout << rows << " " << main_indices.size() << endl;
 
 	// Setting b values.
@@ -176,6 +188,7 @@ int main(int argc, char const *argv[])
 {
 
 	bool ANALYSIS = true;
+	bool MAKE_DIAG_DOMINANT = false;
 
 	GpuTimer tridiagTimer;
 	GpuTimer cuspZeroTimer;
