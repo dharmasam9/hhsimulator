@@ -1,4 +1,5 @@
 #include <cuda_runtime.h>
+#include <cusparse_v2.h>
 
 #include <vector>
 #include <algorithm>
@@ -45,7 +46,7 @@ void print_matrix(cusp::csr_matrix<int, float, cusp::host_memory> &h_A_cusp){
 
 
 void generate_neural_structure(cusp::csr_matrix<int, float, cusp::host_memory> &h_A_cusp,
-								cusp::array1d<float,cusp::host_memory> &h_b_cusp,
+								float* h_b,
 								float* h_left, float* h_principal, float* h_right,
 								int rows, int num_mutations){
 
@@ -183,12 +184,10 @@ void generate_neural_structure(cusp::csr_matrix<int, float, cusp::host_memory> &
 	//print_matrix(h_A_cusp);
 
 
-
-	/*
 	// Populating rhs
 	for (int i = 0; i < rows; ++i)
-		h_b_cusp[i] = 1;
-	*/
+		h_b[i] = 1;
+	
 
 }
 
@@ -196,28 +195,142 @@ void generate_neural_structure(cusp::csr_matrix<int, float, cusp::host_memory> &
 int main(int argc, char const *argv[])
 {	
 
+	bool ANALYSIS = false;
+	bool MAKE_DIAG_DOMINANT = false;
+
+	// set stopping criteria:
+    int  iteration_limit    = 500;
+    float  relative_tolerance = 1e-3;
+
+	GpuTimer tridiagTimer;
+	GpuTimer cuspZeroTimer;
+	GpuTimer cuspHintTimer;
+
+    // cusparse handle
+    cusparseHandle_t cusparse_handle = 0;
+    cusparseCreate(&cusparse_handle);
+
 	srand(time(NULL));
 
 	int rows = atoi(argv[1]);
-	// int num_mutations = (atoi(argv[2])*(rows-2))/100;
-	int num_mutations = atoi(argv[2]);
+	//int num_mutations = atoi(argv[2];
+	int num_mutations = (atoi(argv[2])*(rows-2))/100;
+
+	if(argc > 3)
+		iteration_limit = atoi(argv[3]);
+
+	if(argc > 4)
+		relative_tolerance = pow(10,-1*atoi(argv[4]));
+
 
 	// Matrix details
-	cusp::csr_matrix<int, float, cusp::host_memory> h_A_cusp;
-	cusp::array1d<float,cusp::host_memory> h_b_cusp(rows);
+	cusp::csr_matrix<int, float, cusp::host_memory> h_A;
 
 	// Pointers for tri-diagonal in host and device
 	float* h_left, *h_principal, *h_right;
 	float* d_left, *d_principal, *d_right;
+
+	float* h_b;
+	float* d_b;
 
 	// Allocating memory for tri diagonal
 	h_left = (float*) calloc(rows, sizeof(float));
 	h_principal = (float*) calloc(rows, sizeof(float));
 	h_right = (float*) calloc(rows, sizeof(float));
 
-	generate_neural_structure(h_A_cusp, h_b_cusp,
+	cudaMalloc((void**)&d_left, rows*sizeof(float));
+	cudaMalloc((void**)&d_principal, rows*sizeof(float));
+	cudaMalloc((void**)&d_right, rows*sizeof(float));
+
+	// Allocating memory for rhs
+	h_b = (float*) calloc(rows+1, sizeof(float));
+	cudaMalloc((void**)& d_b, rows*sizeof(float));
+
+	generate_neural_structure(h_A, h_b,
 								h_left, h_principal, h_right,
 								rows, num_mutations);
+
+
+	// Copy to gpu
+    cudaMemcpy(d_left, h_left, sizeof(float)*rows, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_principal, h_principal, sizeof(float)*rows, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_right, h_right, sizeof(float)*rows, cudaMemcpyHostToDevice);
+
+    cudaMemcpy(d_b, h_b, sizeof(float)*rows, cudaMemcpyHostToDevice);
+
+    // Generate device csr matrix
+	cusp::csr_matrix<int, float, cusp::device_memory> d_A(h_A);
+
+	// Solving Tri-diag(A)
+    tridiagTimer.Start();
+    cusparseSgtsv(cusparse_handle,
+    			  h_A.num_rows,
+    			  1,
+    			  d_left, d_principal, d_right,
+    			  d_b, h_A.num_rows);
+    cudaDeviceSynchronize();
+    tridiagTimer.Stop();
+
+    float* h_tr_sol = (float*) calloc(h_A.num_rows, sizeof(float));
+    cudaMemcpy(h_tr_sol, d_b, sizeof(float)* h_A.num_rows, cudaMemcpyDeviceToHost);
+
+    // Solving CG using tridiag
+
+	// allocate storage for solution (x) and right hand side (b)
+	cusp::array1d<float, cusp::host_memory> cusp_h_x(h_A.num_rows);
+	cusp::array1d<float, cusp::host_memory> cusp_h_b(h_A.num_rows);
+
+	for (int i = 0; i < h_A.num_rows; ++i)
+	{
+		cusp_h_x[i] = h_tr_sol[i];
+		cusp_h_b[i] = h_b[i];
+	}
+
+	//cusp::print(cusp_h_x);
+
+    // allocate storage for solution (x) and right hand side (b)
+    cusp::array1d<float, cusp::device_memory> cusp_d_clever_x(cusp_h_x);
+    cusp::array1d<float, cusp::device_memory> cusp_d_zero_x(h_A.num_rows, 0);
+
+    cusp::array1d<float, cusp::device_memory> cusp_d_clever_b(cusp_h_b);
+    cusp::array1d<float, cusp::device_memory> cusp_d_zero_b(cusp_h_b);
+
+
+    cusp::monitor<float> cleverMonitor(cusp_d_clever_b, iteration_limit, relative_tolerance, 0, !ANALYSIS);
+    cusp::monitor<float> zeroMonitor(cusp_d_zero_b, iteration_limit, relative_tolerance, 0, !ANALYSIS);
+
+    // solve the linear system A * x = b with the Conjugate Gradient method
+    cuspZeroTimer.Start();
+        cusp::krylov::gmres(d_A, cusp_d_zero_x, cusp_d_zero_b, iteration_limit, zeroMonitor);
+        //cusp::krylov::bicgstab(d_A, cusp_d_zero_x, cusp_d_zero_b, zeroMonitor);
+        cudaDeviceSynchronize();
+    cuspZeroTimer.Stop();
+
+    cuspHintTimer.Start();
+    	cusp::krylov::gmres(d_A, cusp_d_clever_x, cusp_d_clever_b, iteration_limit, cleverMonitor);
+        //cusp::krylov::bicgstab(d_A, cusp_d_clever_x, cusp_d_clever_b, cleverMonitor);
+    	cudaDeviceSynchronize();
+    cuspHintTimer.Stop();
+
+
+    float tridiagTime = tridiagTimer.Elapsed();
+    float cuspHintTime = cuspHintTimer.Elapsed();
+    float cuspZeroTime = cuspZeroTimer.Elapsed();
+
+    float clever_time = tridiagTime+cuspHintTime;
+    float speedup = cuspZeroTime/clever_time;
+    int clever_iterations = cleverMonitor.iteration_count();
+    int bench_iterations = zeroMonitor.iteration_count();
+
+
+    if(ANALYSIS){
+        cout << speedup << " " << clever_time << " " << cuspZeroTime << " " << clever_iterations << " " << bench_iterations << " " << tridiagTime << " " << cuspHintTime << endl;
+    }else{
+        cout <<  speedup << endl;
+        cout << "My time: " << tridiagTime+cuspHintTime << " (" << tridiagTime << "," << cuspHintTime << ")" << " in iterations " << cleverMonitor.iteration_count() <<  endl;
+        cout << "Bnc tym: " << cuspZeroTime << " in iterations " << zeroMonitor.iteration_count() << endl;
+	}        
+    
 
 	return 0;
 }
