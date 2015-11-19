@@ -456,15 +456,15 @@ int main(int argc, char *argv[])
 
     // solve the linear system A * x = b with the Conjugate Gradient method
     cuspZeroTimer.Start();
-        //cusp::krylov::gmres(d_A, cusp_d_zero_x, cusp_d_zero_b, iteration_limit, zeroMonitor);
-        cusp::krylov::cg(d_A, cusp_d_zero_x, cusp_d_zero_b, zeroMonitor);
+        cusp::krylov::gmres(d_A, cusp_d_zero_x, cusp_d_zero_b, iteration_limit, zeroMonitor);
+        //cusp::krylov::cg(d_A, cusp_d_zero_x, cusp_d_zero_b, zeroMonitor);
         cudaDeviceSynchronize();
     cuspZeroTimer.Stop();
 
 
     cuspHintTimer.Start();
-    	//cusp::krylov::gmres(d_A, cusp_d_clever_x, cusp_d_clever_b, iteration_limit, cleverMonitor);
-        cusp::krylov::cg(d_A, cusp_d_clever_x, cusp_d_clever_b, cleverMonitor);
+    	cusp::krylov::gmres(d_A, cusp_d_clever_x, cusp_d_clever_b, iteration_limit, cleverMonitor);
+        //cusp::krylov::cg(d_A, cusp_d_clever_x, cusp_d_clever_b, cleverMonitor);
     	cudaDeviceSynchronize();
     cuspHintTimer.Stop();
     
@@ -483,7 +483,17 @@ int main(int argc, char *argv[])
 
 
     if(ANALYSIS){
-        cout << speedup << " " << clever_time << " " << cuspZeroTime << " " << clever_iterations << " " << bench_iterations << " " << tridiagTime << " " << cuspHintTime << endl;
+    	string fn(argv[2]);
+    	if(FROM_FILE){
+    		int index = fn.size()-1;
+	    	while(fn[index] != '/'){
+	    		index--;
+	    	}
+	    	fn = fn.substr(index+1, fn.size()-1-index);
+    	}
+
+    	cout << "$" << fn << " " << rows << " " << h_A.num_entries << " " << tridiag_nnz << " " << offdiag_nnz << " " << offdiag_perc << " " << tridiag_occupancy << endl;
+        cout << "#" << fn << " " << speedup << " " << clever_time << " " << cuspZeroTime << " " << clever_iterations << " " << bench_iterations << " " << tridiagTime << " " << cuspHintTime << endl;
     }else{
         printf("Speedup %.2f\n",speedup);
         printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
