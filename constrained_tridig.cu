@@ -9,6 +9,7 @@
 #include <time.h>
 
 #include <cusp/krylov/gmres.h>
+#include <cusp/krylov/cg.h>
 #include <cusp/monitor.h>
 #include <cusp/print.h>
 
@@ -242,7 +243,8 @@ int main(int argc, char const *argv[])
 	cudaMalloc((void**)& d_rowPtr, rows*sizeof(int));
 	cudaMalloc((void**)& d_b, rows*sizeof(float));
 
-	generate_constrained_tridiag_matrix(h_values, h_colIndex, h_rowPtr, h_b,  h_left, h_principal, h_right, rows, num_mutations);
+	generate_constrained_tridiag_matrix(h_values, h_colIndex, h_rowPtr, h_b,  h_left, 
+		h_principal, h_right, rows, num_mutations, MAKE_DIAG_DOMINANT);
 
 	/*
 	print_matrix(h_values, h_colIndex, h_rowPtr, rows);
@@ -317,14 +319,14 @@ int main(int argc, char const *argv[])
 
     // solve the linear system A * x = b with the Conjugate Gradient method
     cuspZeroTimer.Start();
-        cusp::krylov::gmres(d_A, cusp_d_zero_x, cusp_d_zero_b, restart, zeroMonitor);
-        //cusp::krylov::bicgstab(d_A, cusp_d_zero_x, cusp_d_zero_b, zeroMonitor);
+        //cusp::krylov::gmres(d_A, cusp_d_zero_x, cusp_d_zero_b, restart, zeroMonitor);
+        cusp::krylov::cg(d_A, cusp_d_zero_x, cusp_d_zero_b, zeroMonitor);
         cudaDeviceSynchronize();
     cuspZeroTimer.Stop();
 
     cuspHintTimer.Start();
-    	cusp::krylov::gmres(d_A, cusp_d_clever_x, cusp_d_clever_b, restart, cleverMonitor);
-        //cusp::krylov::bicgstab(d_A, cusp_d_clever_x, cusp_d_clever_b, cleverMonitor);
+    	//cusp::krylov::gmres(d_A, cusp_d_clever_x, cusp_d_clever_b, restart, cleverMonitor);
+        cusp::krylov::cg(d_A, cusp_d_clever_x, cusp_d_clever_b, cleverMonitor);
     	cudaDeviceSynchronize();
     cuspHintTimer.Stop();
 
