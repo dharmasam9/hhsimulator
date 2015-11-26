@@ -1,5 +1,5 @@
 #include <cuda_runtime.h>
-//#include <cusparse_v2.h>
+#include <cusparse_v2.h>
 
 #include <thrust/device_vector.h>
 //#include <thrust/device_vector.h>
@@ -15,7 +15,13 @@
 #include <string>
 #include <time.h>
 
+#include "gpu_timer.h"
+
 #include <cusp/csr_matrix.h>
+#include <cusp/array1d.h>
+#include <cusp/krylov/gmres.h>
+#include <cusp/krylov/cg.h>
+#include <cusp/monitor.h>
 
 using namespace std;
 
@@ -25,7 +31,7 @@ int CHANNEL_TYPE_NA = 0;
 int CHANNEL_TYPE_K = 1;
 int CHANNEL_TYPE_CL = 2;
 
-int MAX_CHAN_PER_COMP = 6;
+int MAX_CHAN_PER_COMP = 3;
 
 double gbar_K = 36.0;
 double gbar_Na = 120.0;
@@ -44,6 +50,12 @@ tree[ i ].Cm = 500.0 + 200.0 * i * i;
 Em.push_back( -0.06 );
 V.push_back( -0.06 + 0.01 * i );
 */
+
+__global__
+void update_V(double* d_a1, double* d_a2){
+	int tid = blockIdx.x* blockDim.x + threadIdx.x;
+	d_a2[tid] = d_a1[tid];
+}
 
 __global__
 void update_matrix(double* d_maindiag_passive, double* d_GkSum, 
@@ -66,6 +78,8 @@ void calculate_currents(double* d_V, double* d_Cm, double dT,
 						double* d_b){
 	int tid = blockIdx.x* blockDim.x + threadIdx.x;	
 
+	// printf("%lf %lf %lf %lf \n", (d_V[tid]*d_Cm[tid])/dT, d_Em[tid]/d_Rm[tid], d_GkEkSum[tid], externalCurrent);
+
 	d_b[tid] = (d_V[tid]*d_Cm[tid])/dT + d_Em[tid]/d_Rm[tid] + d_GkEkSum[tid] + externalCurrent;
 
 }
@@ -81,6 +95,8 @@ void calculate_gk_gkek_sum(double* d_V,
 	double temp;
 	double gksum = 0;
 	double gkeksum = 0;
+
+	// printf("%lf %lf %lf %d\n", d_gate_m[tid], d_gate_h[tid], d_gate_n[tid] , d_channel_counts[3*tid+1]);
 
 	temp = 0.12 * pow(d_gate_m[tid],3) * d_gate_h[tid] * d_channel_counts[3*tid];
 	gksum += temp;
@@ -418,7 +434,7 @@ void populate_Cm(double* h_Cm, int num_comp){
 
 void populate_Ga(double* h_Ga, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		h_Ga[i] = 3;
+		h_Ga[i] = 2;
 }
 
 void populate_Rm(double* h_Rm, int num_comp){
