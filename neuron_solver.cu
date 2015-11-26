@@ -168,7 +168,8 @@ void fill_matrix_using_junction(cusp::csr_matrix<int, float, cusp::host_memory> 
 
 	// Populating rhs
 	for (int i = 0; i < rows; ++i)
-		h_b[i] = (rand()%20)+2;
+		//h_b[i] = (rand()%20)+2;
+		h_b[i] = 1;
 
 }
 
