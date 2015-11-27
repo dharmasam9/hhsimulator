@@ -31,10 +31,10 @@ int CHANNEL_TYPE_NA = 0;
 int CHANNEL_TYPE_K = 1;
 int CHANNEL_TYPE_CL = 2;
 
-int MAX_CHAN_PER_COMP = 3;
+int MAX_CHAN_PER_COMP = 15;
 
-double gbar_K = 36.0;
 double gbar_Na = 120.0;
+double gbar_K = 36.0;
 double gbar_L = 0.3;
 
 double E_RESTING_POTENTIAL = -70;
@@ -58,7 +58,7 @@ void update_V(double* d_a1, double* d_a2){
 }
 
 __global__
-void update_matrix(double* d_maindiag_passive, double* d_GkSum, 
+void update_matrix(int num_comp, double* d_maindiag_passive, double* d_GkSum, 
 				 	int* d_maindiag_map, 
 				 	//cusp::array1d<double,cusp::device_memory> d_A_cusp_values,
 					double* d_A_cusp_values,
@@ -66,8 +66,10 @@ void update_matrix(double* d_maindiag_passive, double* d_GkSum,
 
 	int tid = blockIdx.x* blockDim.x + threadIdx.x;
 
+	//printf("%d %lf\n", tid, d_GkSum[tid]);
+
 	double temp = d_maindiag_passive[tid] + d_GkSum[tid];
-	d_tridiag_data[tid] = temp;
+	d_tridiag_data[num_comp + tid] = temp;
 	d_A_cusp_values[d_maindiag_map[tid]] = temp;
 }
 
@@ -80,7 +82,7 @@ void calculate_currents(double* d_V, double* d_Cm, double dT,
 
 	// printf("%lf %lf %lf %lf \n", (d_V[tid]*d_Cm[tid])/dT, d_Em[tid]/d_Rm[tid], d_GkEkSum[tid], externalCurrent);
 
-	d_b[tid] = (d_V[tid]*d_Cm[tid])/dT + d_Em[tid]/d_Rm[tid] + d_GkEkSum[tid] + externalCurrent;
+	d_b[tid] = (d_V[tid]*d_Cm[tid])/dT + d_Em[tid]/d_Rm[tid] + d_GkEkSum[tid] - externalCurrent;
 
 }
 
@@ -98,16 +100,16 @@ void calculate_gk_gkek_sum(double* d_V,
 
 	// printf("%lf %lf %lf %d\n", d_gate_m[tid], d_gate_h[tid], d_gate_n[tid] , d_channel_counts[3*tid+1]);
 
-	temp = 0.12 * pow(d_gate_m[tid],3) * d_gate_h[tid] * d_channel_counts[3*tid];
+	temp = 120.0 * pow(d_gate_m[tid],3) * d_gate_h[tid] * d_channel_counts[3*tid];
 	gksum += temp;
 	gkeksum += temp*(115);
 
-	temp = 0.036 * pow(d_gate_n[tid],4) * d_channel_counts[3*tid+1];
+	temp = 36.0 * pow(d_gate_n[tid],4) * d_channel_counts[3*tid+1];
 	gksum += temp;
 	gkeksum += temp*(-12);
 
-	gksum += 0.0003* d_channel_counts[3*tid+2];
-	gkeksum += temp*(10.598);
+	gksum += 0.3* d_channel_counts[3*tid+2];
+	gkeksum += temp*(10.6);
 
 	d_GkSum[tid] = gksum;
 	d_GkEkSum[tid] = gkeksum;
@@ -201,7 +203,6 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 	// Membrance resitance and capacitance terms.
 	for (int i = 0; i < num_comp; ++i)
 		h_maindiag_passive[i] += (h_Cm[i]/dT + 1.0/h_Rm[i]);
-
 
 
 	// Non zero elements in csr format.
@@ -423,7 +424,8 @@ void generate_random_neuron(int num_comp, int num_mutations, vector<vector<int> 
 
 void populate_V(double* h_V, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		h_V[i] = E_RESTING_POTENTIAL;
+		h_V[i] = 0;
+		//h_V[i] = E_RESTING_POTENTIAL;
 }
 
 void populate_Cm(double* h_Cm, int num_comp){
