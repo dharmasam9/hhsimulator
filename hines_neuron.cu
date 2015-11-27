@@ -26,7 +26,9 @@
 
 using namespace std;
 
-void print_matrix(cusp::csr_matrix<int, float, cusp::host_memory> &h_A_cusp){
+double RESTING_POTENTIAL = -60;
+
+void print_matrix(cusp::csr_matrix<int, double, cusp::host_memory> &h_A_cusp){
 	for (int i = 0; i < h_A_cusp.num_rows; ++i)
 	{
 		int j = 0;
@@ -54,9 +56,9 @@ void print_matrix(cusp::csr_matrix<int, float, cusp::host_memory> &h_A_cusp){
 }
 
 
-void fill_matrix_using_junction(cusp::csr_matrix<int, float, cusp::host_memory> &h_A_cusp,
-								float* h_b,
-								float* h_left, float* h_principal, float* h_right,
+void fill_matrix_using_junction(cusp::csr_matrix<int, double, cusp::host_memory> &h_A_cusp,
+								double* h_b,
+								double* h_left, double* h_principal, double* h_right,
 								int rows,
 								vector<vector<int> > &junction_list,
 								int &tridiag_nnz, int &offdiag_nnz){
@@ -76,7 +78,7 @@ void fill_matrix_using_junction(cusp::csr_matrix<int, float, cusp::host_memory> 
 	tridiag_nnz = 0;
 	offdiag_nnz = 0;
 
-	int DEBUG = 1;
+	int DEBUG = 0;
 
 	if(DEBUG){
 		// Printing junction list
@@ -92,31 +94,36 @@ void fill_matrix_using_junction(cusp::csr_matrix<int, float, cusp::host_memory> 
 	}
 
 	// Generate Ra's, Rm's, Cm's, Ga's
-	float* Ra_ = new float[rows];
-	float* Rm_ = new float[rows];
-	float* Cm_ = new float[rows];
-	float* Ga_ = new float[rows];
-	float dt = 1.0;
+	double* Ra_ = new double[rows];
+	double* Rm_ = new double[rows];
+	double* Cm_ = new double[rows];
+	double* Ga_ = new double[rows];
+	double dt = 0.1;
 
 	for (int i = 0; i < rows; ++i){
-		Ra_[i] = 0.5; //15.0 + 3.0 * i;
-		Rm_[i] = 0.5;//45.0 + 15.0 * i;
-		Cm_[i] = 500.0 + 200.0 * i * i;
+		//Ra_[i] = 15.0;
+		Ra_[i] = 15.0 + 3.0 * i;
+		//Rm_[i] = 45.0; 
+		Rm_[i] = 45.0 + 15.0 * i;
+		//Cm_[i] = 50.0; 
+		//Cm_[i] =500.0 + 200.0 * i * i;
+		Cm_[i] =5.0 + 2.0 * i * i;
+		//Cm_[i] = 1;
 		Ga_[i] = 1/Ra_[i];
 	}		
 
 	// Passive admittance in main diagonal
-	float* main_coeff = new float[rows];
+	double* main_coeff = new double[rows]();
 
-	// Membrance resitance and capacitance terms.
+	// Initializing main diagonal with some passive components
 	for (int i = 0; i < rows; ++i)
-		main_coeff[i] += (Cm_[i]/dt + 1.0/Rm_[i]);
+		main_coeff[i] = (Cm_[i]/dt + 1.0/Rm_[i]);
 
 	// Non zero elements in csr format.
-	vector<pair<int,float> > non_zero_elements;
+	vector<pair<int,double> > non_zero_elements;
 	int node1,node2;
-	float gi,gj,gij;
-	float junction_sum;
+	double gi,gj,gij;
+	double junction_sum;
 
 	// Handling linear cases
 	for (int i = 0; i < rows; ++i)
@@ -136,9 +143,15 @@ void fill_matrix_using_junction(cusp::csr_matrix<int, float, cusp::host_memory> 
 			non_zero_elements.push_back(make_pair(node1*rows+node2, -1*gij));
 			non_zero_elements.push_back(make_pair(node2*rows+node1, -1*gij));
 
+			if(abs(node2-node1) == 1) // left or right principal diagonal
+				tridiag_nnz += 2;
+			else
+				offdiag_nnz += 2;
+
 		}
 	}	
 
+	// Handling branches
 	// Generating symmetrix admittance graph
 	// using junction information.
 	for (int i = 0; i < rows; ++i)
@@ -152,7 +165,7 @@ void fill_matrix_using_junction(cusp::csr_matrix<int, float, cusp::host_memory> 
 
 			// Inducing passive effect to main diagonal
 			node1 = junction_list[i][0];
-			main_coeff[node1] += Ga_[node1]*(1.0 - Ga_[node1]/junction_sum);
+			main_coeff[node1] += Ga_[node1]*(1.0 - (Ga_[node1]/junction_sum) );
 
 			// Putting admittance in off diagonal elements.
 			for (int j = 0; j < junction_list[i].size(); ++j)
@@ -173,6 +186,11 @@ void fill_matrix_using_junction(cusp::csr_matrix<int, float, cusp::host_memory> 
 					non_zero_elements.push_back(make_pair(node1*rows+node2, -1*gij));
 					non_zero_elements.push_back(make_pair(node2*rows+node1, -1*gij));
 
+					if(abs(node2-node1) == 1) // left or right principal diagonal
+						tridiag_nnz += 2;
+					else
+						offdiag_nnz += 2;
+
 				}
 			}
 		}
@@ -180,8 +198,10 @@ void fill_matrix_using_junction(cusp::csr_matrix<int, float, cusp::host_memory> 
 
 
 	// Add main diagonal to non_zero_elements.
-	for (int i = 0; i < rows; ++i)
+	for (int i = 0; i < rows; ++i){
+		tridiag_nnz += 1; // Main diagonal is part of tri diagonal
 		non_zero_elements.push_back(make_pair(i*rows+i, main_coeff[i]));
+	}
 	
 
 	// Initializing a cusp csr matrix
@@ -192,7 +212,8 @@ void fill_matrix_using_junction(cusp::csr_matrix<int, float, cusp::host_memory> 
 	// and populating tri diagonal
 	sort(non_zero_elements.begin(), non_zero_elements.end());
 
-	int r,c,value;
+	int r,c;
+	double value;
 	for (int i = 0; i < nnz; ++i)
 	{
 		r = non_zero_elements[i].first/rows;
@@ -227,15 +248,17 @@ void fill_matrix_using_junction(cusp::csr_matrix<int, float, cusp::host_memory> 
 
 
 	// Populating rhs
-	for (int i = 0; i < rows; ++i)
-		//h_b[i] = (rand()%20)+2;
+	for (int i = 0; i < rows; ++i){
+		h_b[i] = (RESTING_POTENTIAL*Cm_[i])/dt + (RESTING_POTENTIAL/Rm_[i]);
 		h_b[i] = 1;
+	}
+
 
 }
 
-void generate_neural_structure(cusp::csr_matrix<int, float, cusp::host_memory> &h_A_cusp,
-								float* h_b,
-								float* h_left, float* h_principal, float* h_right,
+void generate_neural_structure(cusp::csr_matrix<int, double, cusp::host_memory> &h_A_cusp,
+								double* h_b,
+								double* h_left, double* h_principal, double* h_right,
 								int rows, int num_mutations,
 								int &tridiag_nnz, int &offdiag_nnz){
 
@@ -246,7 +269,7 @@ void generate_neural_structure(cusp::csr_matrix<int, float, cusp::host_memory> &
 	for (int i = 0; i < rows; ++i)
 		junction_list[i].push_back(i);
 	
-	/*
+	
 	// Marking random components for mutations.
 	bool* mutations = new bool[rows];
 	int mutations_found = 0;
@@ -255,7 +278,7 @@ void generate_neural_structure(cusp::csr_matrix<int, float, cusp::host_memory> &
 	cout << num_mutations << endl;
 
 	while(mutations_found != num_mutations){
-		cout << "here" << mutations_found << " " << num_mutations <<  endl;
+		//cout << "here" << mutations_found << " " << num_mutations <<  endl;
 		mutated_comp = (rand()%(rows-2))+2;
 
 		if(!mutations[mutated_comp]){
@@ -278,12 +301,13 @@ void generate_neural_structure(cusp::csr_matrix<int, float, cusp::host_memory> &
 		}
 	}
 
-	*/
-
+	
+	/*
 	junction_list[0].push_back(1);
 	junction_list[0].push_back(2);
 	junction_list[2].push_back(3);
 	junction_list[3].push_back(4);
+	*/
 
 	fill_matrix_using_junction(h_A_cusp, h_b,
 								h_left, h_principal, h_right,
@@ -294,15 +318,15 @@ void generate_neural_structure(cusp::csr_matrix<int, float, cusp::host_memory> &
 
 }
 
-void read_neuron_structure(char* file_name, cusp::csr_matrix<int, float, cusp::host_memory> &h_A_cusp,
-								float* h_b,
-								float* h_left, float* h_principal, float* h_right,
+void read_neuron_structure(char* file_name, cusp::csr_matrix<int, double, cusp::host_memory> &h_A_cusp,
+								double* h_b,
+								double* h_left, double* h_principal, double* h_right,
 								int rows, int &tridiag_nnz, int &offdiag_nnz){
 
 	// Juntion list with compartment numbers.
 	vector< vector<int> > junction_list(rows);
 
-	// Initializing junctions.
+	// Pushing the <id compartment> of junction.
 	for (int i = 0; i < rows; ++i)
 		junction_list[i].push_back(i);
 	
@@ -312,16 +336,16 @@ void read_neuron_structure(char* file_name, cusp::csr_matrix<int, float, cusp::h
 
 	int start,end;
 	int parent,child;
-	float temp_float;
+	double temp_double;
 	while(getline(input_file, line)){
 		if(line[0] != '#'){
 			stringstream ss(line);
 			ss >> child;
 			ss >> parent;
-			ss >> temp_float;
-			ss >> temp_float;
-			ss >> temp_float;
-			ss >> temp_float;
+			ss >> temp_double;
+			ss >> temp_double;
+			ss >> temp_double;
+			ss >> temp_double;
 			ss >> parent;
 
 			if(parent != -1){
@@ -364,8 +388,7 @@ int get_rows_from_file(char* file_name){
 int main(int argc, char *argv[])
 {	
 
-	bool ANALYSIS = false;
-	bool MAKE_DIAG_DOMINANT = false;
+	bool ANALYSIS = true;
 	bool FROM_FILE = true;
 
 	int rows, num_mutations;
@@ -374,8 +397,8 @@ int main(int argc, char *argv[])
 	int offdiag_nnz = 0;
 
 	// set stopping criteria:
-	int  iteration_limit    = 500;
-	float  relative_tolerance = 1e-6;
+	int  iteration_limit    = 100;
+	double  relative_tolerance = 1e-6;
 
 	GpuTimer tridiagTimer;
 	GpuTimer cuspZeroTimer;
@@ -391,7 +414,6 @@ int main(int argc, char *argv[])
 	FROM_FILE = atoi(argv[1]);
 
 	if(FROM_FILE){
-
 		rows = get_rows_from_file(argv[2]);
 
 		if(argc > 3)
@@ -420,27 +442,27 @@ int main(int argc, char *argv[])
 	}
 
 	// Matrix details
-	cusp::csr_matrix<int, float, cusp::host_memory> h_A;
+	cusp::csr_matrix<int, double, cusp::host_memory> h_A;
 
 	// Pointers for tri-diagonal in host and device
-	float* h_left, *h_principal, *h_right;
-	float* d_left, *d_principal, *d_right;
+	double* h_left, *h_principal, *h_right;
+	double* d_left, *d_principal, *d_right;
 
-	float* h_b;
-	float* d_b;
+	double* h_b;
+	double* d_b;
 
-	// Allocating memory for tri diagonal
-	h_left = (float*) calloc(rows, sizeof(float));
-	h_principal = (float*) calloc(rows, sizeof(float));
-	h_right = (float*) calloc(rows, sizeof(float));
+	// Allocating memory for tri diagonal and rhs
+	h_left = (double*) calloc(rows, sizeof(double));
+	h_principal = (double*) calloc(rows, sizeof(double));
+	h_right = (double*) calloc(rows, sizeof(double));
+	h_b = (double*) calloc(rows+1, sizeof(double));
 
-	cudaMalloc((void**)&d_left, rows*sizeof(float));
-	cudaMalloc((void**)&d_principal, rows*sizeof(float));
-	cudaMalloc((void**)&d_right, rows*sizeof(float));
-
-	// Allocating memory for rhs
-	h_b = (float*) calloc(rows+1, sizeof(float));
-	cudaMalloc((void**)& d_b, rows*sizeof(float));
+	// Allocating device memory for tridiagonal and rhs
+	cudaMalloc((void**)&d_left, rows*sizeof(double));
+	cudaMalloc((void**)&d_principal, rows*sizeof(double));
+	cudaMalloc((void**)&d_right, rows*sizeof(double));
+	
+	cudaMalloc((void**)& d_b, rows*sizeof(double));
 
 	if(FROM_FILE){
 		read_neuron_structure(argv[2] ,h_A, h_b ,
@@ -452,21 +474,20 @@ int main(int argc, char *argv[])
 								rows, num_mutations, tridiag_nnz, offdiag_nnz);	
 	}
 	
-	return 0;
-	/*
-	// Copy to gpu
-	cudaMemcpy(d_left, h_left, sizeof(float)*rows, cudaMemcpyHostToDevice);
-	cudaMemcpy(d_principal, h_principal, sizeof(float)*rows, cudaMemcpyHostToDevice);
-	cudaMemcpy(d_right, h_right, sizeof(float)*rows, cudaMemcpyHostToDevice);
 
-	cudaMemcpy(d_b, h_b, sizeof(float)*rows, cudaMemcpyHostToDevice);
+	// Copy to gpu
+	cudaMemcpy(d_left, h_left, sizeof(double)*rows, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_principal, h_principal, sizeof(double)*rows, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_right, h_right, sizeof(double)*rows, cudaMemcpyHostToDevice);
+
+	cudaMemcpy(d_b, h_b, sizeof(double)*rows, cudaMemcpyHostToDevice);
 
 	// Generate device csr matrix
-	cusp::csr_matrix<int, float, cusp::device_memory> d_A(h_A);
+	cusp::csr_matrix<int, double, cusp::device_memory> d_A(h_A);
 
 	// Solving Tri-diag(A)
 	tridiagTimer.Start();
-	cusparseSgtsv(cusparse_handle,
+	cusparseDgtsv(cusparse_handle,
 				  h_A.num_rows,
 				  1,
 				  d_left, d_principal, d_right,
@@ -474,14 +495,14 @@ int main(int argc, char *argv[])
 	cudaDeviceSynchronize();
 	tridiagTimer.Stop();
 
-	float* h_tr_sol = (float*) calloc(h_A.num_rows, sizeof(float));
-	cudaMemcpy(h_tr_sol, d_b, sizeof(float)* h_A.num_rows, cudaMemcpyDeviceToHost);
+	double* h_tr_sol = (double*) calloc(h_A.num_rows, sizeof(double));
+	cudaMemcpy(h_tr_sol, d_b, sizeof(double)* h_A.num_rows, cudaMemcpyDeviceToHost);
 
 	// Solving CG using tridiag
 
 	// allocate storage for solution (x) and right hand side (b)
-	cusp::array1d<float, cusp::host_memory> cusp_h_x(h_A.num_rows);
-	cusp::array1d<float, cusp::host_memory> cusp_h_b(h_A.num_rows);
+	cusp::array1d<double, cusp::host_memory> cusp_h_x(h_A.num_rows);
+	cusp::array1d<double, cusp::host_memory> cusp_h_b(h_A.num_rows);
 
 	for (int i = 0; i < h_A.num_rows; ++i)
 	{
@@ -492,15 +513,15 @@ int main(int argc, char *argv[])
 	//cusp::print(cusp_h_x);
 
 	// allocate storage for solution (x) and right hand side (b)
-	cusp::array1d<float, cusp::device_memory> cusp_d_clever_x(cusp_h_x);
-	cusp::array1d<float, cusp::device_memory> cusp_d_zero_x(h_A.num_rows, 0);
+	cusp::array1d<double, cusp::device_memory> cusp_d_clever_x(cusp_h_x);
+	cusp::array1d<double, cusp::device_memory> cusp_d_zero_x(h_A.num_rows, 0);
 
-	cusp::array1d<float, cusp::device_memory> cusp_d_clever_b(cusp_h_b);
-	cusp::array1d<float, cusp::device_memory> cusp_d_zero_b(cusp_h_b);
+	cusp::array1d<double, cusp::device_memory> cusp_d_clever_b(cusp_h_b);
+	cusp::array1d<double, cusp::device_memory> cusp_d_zero_b(cusp_h_b);
 
 
-	cusp::monitor<float> cleverMonitor(cusp_d_clever_b, iteration_limit, relative_tolerance, 0, !ANALYSIS);
-	cusp::monitor<float> zeroMonitor(cusp_d_zero_b, iteration_limit, relative_tolerance, 0, !ANALYSIS);
+	cusp::monitor<double> cleverMonitor(cusp_d_clever_b, iteration_limit, relative_tolerance, 0, !ANALYSIS);
+	cusp::monitor<double> zeroMonitor(cusp_d_zero_b, iteration_limit, relative_tolerance, 0, !ANALYSIS);
 
 	// solve the linear system A * x = b with the Conjugate Gradient method
 	cuspZeroTimer.Start();
@@ -517,17 +538,17 @@ int main(int argc, char *argv[])
 	cuspHintTimer.Stop();
 	
 
-	float tridiagTime = tridiagTimer.Elapsed();
-	float cuspHintTime = cuspHintTimer.Elapsed();
-	float cuspZeroTime = cuspZeroTimer.Elapsed();
+	double tridiagTime = tridiagTimer.Elapsed();
+	double cuspHintTime = cuspHintTimer.Elapsed();
+	double cuspZeroTime = cuspZeroTimer.Elapsed();
 
-	float clever_time = tridiagTime+cuspHintTime;
-	float speedup = cuspZeroTime/clever_time;
+	double clever_time = tridiagTime+cuspHintTime;
+	double speedup = cuspZeroTime/clever_time;
 	int clever_iterations = cleverMonitor.iteration_count();
 	int bench_iterations = zeroMonitor.iteration_count();
 
-	float offdiag_perc = ((float)offdiag_nnz*100)/h_A.num_entries;
-	float tridiag_occupancy = ((float)tridiag_nnz*100)/(3*rows-2);
+	double offdiag_perc = ((double)offdiag_nnz*100)/h_A.num_entries;
+	double tridiag_occupancy = ((double)tridiag_nnz*100)/(3*rows-2);
 
 
 	if(ANALYSIS){
@@ -556,5 +577,4 @@ int main(int argc, char *argv[])
 	
 
 	return 0;
-	*/
 }
