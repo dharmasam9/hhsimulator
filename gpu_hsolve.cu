@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
 	double* h_current_inj;
 
 	// Setting up simulation times
-	simulation_time = 20;
+	simulation_time = 50;
 	dT = 0.01;
 	time_steps = simulation_time/dT;
 
@@ -90,14 +90,18 @@ int main(int argc, char *argv[])
 
 	h_current_inj = new double[time_steps]();
 
+	// Full current through out.
+	for (int i = 0; i < time_steps; ++i){
+		h_current_inj[i] = I_EXT;
+	}
 
-	// Inject current at (0-25) and (50-75)
+	/*
 	int temp = (25*time_steps)/100;
 	for (int i = 0; i < temp; ++i){
 		h_current_inj[i] = I_EXT;
 		h_current_inj[time_steps-temp-i] = I_EXT;
 	}
-
+	*/
 
 	// Setting up channels
 	h_channel_counts = new int[3*num_comp]();
@@ -238,7 +242,7 @@ int main(int argc, char *argv[])
 	}
 
 	// ************************************************
-
+	cout << "SIMULATION BEGINS" << endl;
 	double h_Vplot[num_comp];
 
 	ofstream V_file;
@@ -249,8 +253,8 @@ int main(int argc, char *argv[])
 
 		// ADVANCE m,n,h channels
 		advance_channel_m<<<1,num_comp>>>(d_V, d_gate_m, dT);
-		advance_channel_n<<<1,num_comp>>>(d_V, d_gate_h, dT);
-		advance_channel_h<<<1,num_comp>>>(d_V, d_gate_n, dT);
+		advance_channel_n<<<1,num_comp>>>(d_V, d_gate_n, dT);
+		advance_channel_h<<<1,num_comp>>>(d_V, d_gate_h, dT);
 		cudaDeviceSynchronize();
 	
 		// CALCULATE Gk and GkEk values
@@ -358,7 +362,7 @@ int main(int argc, char *argv[])
 		*/
 		
 
-		V_file << i*dT << "," << (h_Vplot[0]-70) << endl;
+		V_file << i*dT << "," << h_Vplot[0] << endl;
 		//cout << i*dT << "," << h_Vplot[0] << endl;
 
 	}

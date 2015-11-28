@@ -82,7 +82,7 @@ void calculate_currents(double* d_V, double* d_Cm, double dT,
 
 	// printf("%lf %lf %lf %lf \n", (d_V[tid]*d_Cm[tid])/dT, d_Em[tid]/d_Rm[tid], d_GkEkSum[tid], externalCurrent);
 
-	d_b[tid] = (d_V[tid]*d_Cm[tid])/dT + d_Em[tid]/d_Rm[tid] + d_GkEkSum[tid] - externalCurrent;
+	d_b[tid] = (d_V[tid]*d_Cm[tid])/dT + d_Em[tid]/d_Rm[tid] + d_GkEkSum[tid] + externalCurrent;
 
 }
 
@@ -424,8 +424,8 @@ void generate_random_neuron(int num_comp, int num_mutations, vector<vector<int> 
 
 void populate_V(double* h_V, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		h_V[i] = 0;
 		//h_V[i] = E_RESTING_POTENTIAL;
+		h_V[i] = 0;
 }
 
 void populate_Cm(double* h_Cm, int num_comp){
