@@ -17,23 +17,20 @@ int main(int argc, char *argv[])
 	int  iteration_limit    = 50;
 	float  relative_tolerance = 1e-6;
 
+	// GPU Timers
 	GpuTimer tridiagTimer;
 	GpuTimer cuspZeroTimer;
 	GpuTimer cuspHintTimer;
-
 	
 	// cusparse handle
 	cusparseHandle_t cusparse_handle = 0;
 	cusparseCreate(&cusparse_handle);
 
-	if(argc > 1)
-		FROM_FILE = atoi(argv[1]);
-
 	/* initialize random seed: */
 	srand (time(NULL));
 
 	// Required arrays
-	double simulation_time, dT;
+	double simulation_time = 0.05, dT = 0.01;
 	int time_steps = 0;
 
 	vector<vector<int> > junction_list;
@@ -45,37 +42,63 @@ int main(int argc, char *argv[])
 	double* h_gate_m,*h_gate_h,*h_gate_n;
 	double* h_current_inj;
 
-	// Setting up simulation times
-	simulation_time = 50;
-	dT = 0.01;
-	time_steps = simulation_time/dT;
+	// If from file read the structure or generate structure
+	if(argc > 1)
+		FROM_FILE = atoi(argv[1]);
 
 	// Setting number of components
 	if(FROM_FILE){
 		num_comp = get_rows_from_file(argv[2]);
-		junction_list.resize(num_comp);
 
+		if(argc > 3)
+			simulation_time = atof(argv[3]);
+
+		if(argc > 4)
+			dT = atof(argv[4]);
+
+		if(argc > 5)
+			ANALYSIS = atoi(argv[5]);
+
+		if(argc > 6)
+			iteration_limit = atoi(argv[6]);
+
+		if(argc > 7)
+			relative_tolerance = pow(10,-1*atoi(argv[7]));
+
+		junction_list.resize(num_comp);
 		get_structure_from_neuron(argv[2], num_comp, junction_list);
 
 	}else{
-		num_comp = 5;
-		junction_list.resize(num_comp);
-
 		int num_mutations = 1;
+		num_comp = 5;
+
+		if(argc > 2)
+			num_comp = atoi(argv[2]);		
+
+		if(argc > 3)
+			num_mutations = (atof(argv[3])*(num_comp-2))/100; // Branching percentage
+
+		if(argc > 4)
+			simulation_time = atof(argv[4]);
+
+		if(argc > 5)
+			dT = atof(argv[5]);
+
+		if(argc > 6)
+			ANALYSIS = atoi(argv[6]);
+
+		if(argc > 7)
+			iteration_limit = atoi(argv[7]);
+
+		if(argc > 8)
+			relative_tolerance = pow(10,-1*atoi(argv[8]));
+
+		junction_list.resize(num_comp);
 		generate_random_neuron(num_comp, num_mutations, junction_list);
 	}
 
-	/*
-	// print junction list
-	for (int i = 0; i < junction_list.size(); ++i)
-	{	
-		cout << i << "-> ";
-		for (int j = 0; j < junction_list[i].size(); ++j)
-			cout << junction_list[i][j] << " ";
-		cout << endl;
-	}
-	*/
-	
+	// Calculating time_steps
+	time_steps = simulation_time/dT;
 
 	// Allocating memory
 	h_V  = new double[num_comp]();
@@ -89,13 +112,14 @@ int main(int argc, char *argv[])
 	h_gate_h = new double[num_comp]();
 
 	h_current_inj = new double[time_steps]();
+	h_channel_counts = new int[3*num_comp]();
 
 	// Full current through out.
 	for (int i = 0; i < time_steps; ++i){
 		h_current_inj[i] = I_EXT;
 	}
 
-	/*
+	/* Managing current
 	int temp = (25*time_steps)/100;
 	for (int i = 0; i < temp; ++i){
 		h_current_inj[i] = I_EXT;
@@ -104,8 +128,6 @@ int main(int argc, char *argv[])
 	*/
 
 	// Setting up channels
-	h_channel_counts = new int[3*num_comp]();
-
 	// Randomly assigning channel types for chann in compartment.
 	for (int i = 0; i < num_comp; ++i)
 	{
@@ -164,10 +186,8 @@ int main(int argc, char *argv[])
 	double* d_V,*d_Cm, *d_Rm, *d_Em;
 	double* d_gate_m,*d_gate_h,*d_gate_n;
 	double* d_current_inj;
-	//double* d_b;
-	cusp::array1d<double,cusp::device_memory> d_b_cusp(num_comp);
-
 	int* d_channel_counts;
+	cusp::array1d<double,cusp::device_memory> d_b_cusp(num_comp);
 
 	cusp::csr_matrix<int, double, cusp::device_memory> d_A_cusp(h_A_cusp);
 	double* d_maindiag_passive, *d_tridiag_data;
@@ -183,8 +203,6 @@ int main(int argc, char *argv[])
 	cudaMalloc((void**)&d_gate_n, num_comp*sizeof(double));
 
 	cudaMalloc((void**)&d_current_inj, time_steps*sizeof(double));
-	//cudaMalloc((void**)&d_b, num_comp*sizeof(double));
-
 	cudaMalloc((void**)&d_channel_counts, (3*num_comp)*sizeof(int));
 
 	cudaMalloc((void**)&d_maindiag_passive, num_comp*sizeof(double));
@@ -201,9 +219,6 @@ int main(int argc, char *argv[])
 	cudaMemcpy(d_gate_n, h_gate_n, sizeof(double)*num_comp, cudaMemcpyHostToDevice);
 
 	cudaMemcpy(d_current_inj, h_current_inj, sizeof(double)*time_steps, cudaMemcpyHostToDevice);
-	//cudaMemcpy(d_b, h_b, sizeof(double)*num_comp, cudaMemcpyHostToDevice);
-
-	//for (int i = 0; i < num_comp; ++i) cout << h_channel_counts[3*i] << " " << h_channel_counts[3*i+1] << " " << h_channel_counts[3*i+2] << endl;
 	cudaMemcpy(d_channel_counts, h_channel_counts, sizeof(int)*(3*num_comp), cudaMemcpyHostToDevice);
 
 	cudaMemcpy(d_maindiag_passive, h_maindiag_passive, sizeof(double)*num_comp, cudaMemcpyHostToDevice);
@@ -242,23 +257,27 @@ int main(int argc, char *argv[])
 	}
 
 	// ************************************************
-	cout << "SIMULATION BEGINS" << endl;
+	if(!ANALYSIS) cout << "SIMULATION BEGINS" << endl;
 	double h_Vplot[num_comp];
 
 	ofstream V_file;
 	V_file.open("output.txt");
+
+	int NUM_THREAD_PER_BLOCK = 512;
+	int NUM_BLOCKS = ceil((num_comp*1.0)/NUM_THREAD_PER_BLOCK);
 	
+		
 	for (int i = 0; i < time_steps; ++i)
 	{
 
 		// ADVANCE m,n,h channels
-		advance_channel_m<<<1,num_comp>>>(d_V, d_gate_m, dT);
-		advance_channel_n<<<1,num_comp>>>(d_V, d_gate_n, dT);
-		advance_channel_h<<<1,num_comp>>>(d_V, d_gate_h, dT);
+		advance_channel_m<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, d_gate_m, dT);
+		advance_channel_n<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, d_gate_n, dT);
+		advance_channel_h<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, d_gate_h, dT);
 		cudaDeviceSynchronize();
 	
 		// CALCULATE Gk and GkEk values
-		calculate_gk_gkek_sum<<<1,num_comp>>>(d_V, 
+		calculate_gk_gkek_sum<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, 
 											d_gate_m, d_gate_h, d_gate_n, 
 											d_channel_counts, 
 											d_GkSum, d_GkEkSum);
@@ -266,7 +285,7 @@ int main(int argc, char *argv[])
 
 		// CALCULATE currents
 		double externalCurrent = h_current_inj[i];
-		calculate_currents<<<1,num_comp>>>(d_V, d_Cm, dT, 
+		calculate_currents<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, d_Cm, dT, 
 							d_Em, d_Rm, 
 							d_GkEkSum, externalCurrent, 
 							thrust::raw_pointer_cast(&d_b_cusp[0]));
@@ -274,14 +293,14 @@ int main(int argc, char *argv[])
 
 
 		// UPDATE matrix and TRIDIAG
-		update_matrix<<<1,num_comp>>>(num_comp, d_maindiag_passive, d_GkSum, 
+		update_matrix<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, num_comp, d_maindiag_passive, d_GkSum, 
 					 d_maindiag_map, 
 					 thrust::raw_pointer_cast(&(d_A_cusp.values[0])), d_tridiag_data);
 
 		//cudaMemcpy(h_b, d_b, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
 		cudaDeviceSynchronize();
 
-		// Printing matrix and tridiag, rhs
+		// Printing hines matrix, tridiag and currentVector
 		// *********************************
 		if(DEBUG){
 			cusp::print(d_A_cusp);
@@ -290,10 +309,9 @@ int main(int argc, char *argv[])
 			cusp::print(d_b_cusp);
 
 			for (int i = 0; i < num_comp; ++i)
-			cout << h_tridiag_data[i] << " " << h_tridiag_data[num_comp+i] << " " << h_tridiag_data[2*num_comp+i] << endl;	
+				cout << h_tridiag_data[i] << " " << h_tridiag_data[num_comp+i] << " " << h_tridiag_data[2*num_comp+i] << endl;	
 		}
 		
-
 		// *************************************
 
 		// Cloning b,because tri diagonal solver overrites it with answer
@@ -330,7 +348,7 @@ int main(int argc, char *argv[])
 		cuspHintTimer.Stop();
 
 		// UPDATE V
-		update_V<<<1,num_comp>>>(thrust::raw_pointer_cast(&d_b_cusp[0]), d_V);
+		update_V<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, thrust::raw_pointer_cast(&d_b_cusp[0]), d_V);
 		cudaDeviceSynchronize();
 
 		// print voltage *****************************
@@ -355,20 +373,18 @@ int main(int argc, char *argv[])
 		int clever_iterations = cleverMonitor.iteration_count();
 		int bench_iterations = zeroMonitor.iteration_count();
 
-		/*
-		printf("Speedup %.2f\n",speedup);
-		printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
-		printf("Bench  Time %.2f %d \n", cuspZeroTime, bench_iterations);
-		*/
+		if(!ANALYSIS){
+			printf("Speedup %.2f\n",speedup);
+			printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
+			printf("Bench  Time %.2f %d \n", cuspZeroTime, bench_iterations);	
+		}
 		
 
 		V_file << i*dT << "," << h_Vplot[0] << endl;
 		//cout << i*dT << "," << h_Vplot[0] << endl;
-
 	}
 
 	V_file.close();
-
 
 	return 0;
 }

@@ -2,8 +2,6 @@
 #include <cusparse_v2.h>
 
 #include <thrust/device_vector.h>
-//#include <thrust/device_vector.h>
-
 
 #include <vector>
 #include <algorithm>
@@ -52,114 +50,130 @@ V.push_back( -0.06 + 0.01 * i );
 */
 
 __global__
-void update_V(double* d_a1, double* d_a2){
+void update_V(int threadCount, double* d_new_V, double* d_V){
 	int tid = blockIdx.x* blockDim.x + threadIdx.x;
-	d_a2[tid] = d_a1[tid];
+
+	if(tid < threadCount){
+		d_V[tid] = d_new_V[tid];
+	}
 }
 
 __global__
-void update_matrix(int num_comp, double* d_maindiag_passive, double* d_GkSum, 
-				 	int* d_maindiag_map, 
-				 	//cusp::array1d<double,cusp::device_memory> d_A_cusp_values,
+void update_matrix(int threadCount, int num_comp, double* d_maindiag_passive, double* d_GkSum, 
+				 	int* d_maindiag_map,
 					double* d_A_cusp_values,
 					double* d_tridiag_data){
 
 	int tid = blockIdx.x* blockDim.x + threadIdx.x;
 
-	//printf("%d %lf\n", tid, d_GkSum[tid]);
-
-	double temp = d_maindiag_passive[tid] + d_GkSum[tid];
-	d_tridiag_data[num_comp + tid] = temp;
-	d_A_cusp_values[d_maindiag_map[tid]] = temp;
+	if(tid < threadCount){
+		//printf("%d %lf\n", tid, d_GkSum[tid]);
+		double temp = d_maindiag_passive[tid] + d_GkSum[tid];
+		d_tridiag_data[num_comp + tid] = temp;
+		d_A_cusp_values[d_maindiag_map[tid]] = temp;
+	}
 }
 
 __global__
-void calculate_currents(double* d_V, double* d_Cm, double dT,
+void calculate_currents(int threadCount, double* d_V, double* d_Cm, double dT,
 						double* d_Em, double* d_Rm, 
 						double* d_GkEkSum, double externalCurrent, 
 						double* d_b){
 	int tid = blockIdx.x* blockDim.x + threadIdx.x;	
 
-	// printf("%lf %lf %lf %lf \n", (d_V[tid]*d_Cm[tid])/dT, d_Em[tid]/d_Rm[tid], d_GkEkSum[tid], externalCurrent);
-
-	d_b[tid] = (d_V[tid]*d_Cm[tid])/dT + d_Em[tid]/d_Rm[tid] + d_GkEkSum[tid] + externalCurrent;
+	if(tid < threadCount){
+		// printf("%lf %lf %lf %lf \n", (d_V[tid]*d_Cm[tid])/dT, d_Em[tid]/d_Rm[tid], d_GkEkSum[tid], externalCurrent);
+		d_b[tid] = (d_V[tid]*d_Cm[tid])/dT + d_Em[tid]/d_Rm[tid] + d_GkEkSum[tid] + externalCurrent;
+	}
 
 }
 
 __global__
-void calculate_gk_gkek_sum(double* d_V,
+void calculate_gk_gkek_sum(int threadCount, double* d_V,
 						  double* d_gate_m, double* d_gate_h, double* d_gate_n, 
 						  int* d_channel_counts, 
 						  double* d_GkSum, double* d_GkEkSum){
 
 	int tid = blockIdx.x* blockDim.x + threadIdx.x;
 
-	double temp;
-	double gksum = 0;
-	double gkeksum = 0;
+	if(tid < threadCount){
 
-	// printf("%lf %lf %lf %d\n", d_gate_m[tid], d_gate_h[tid], d_gate_n[tid] , d_channel_counts[3*tid+1]);
+		double temp;
+		double gksum = 0;
+		double gkeksum = 0;
 
-	temp = 120.0 * pow(d_gate_m[tid],3) * d_gate_h[tid] * d_channel_counts[3*tid];
-	gksum += temp;
-	gkeksum += temp*(115);
+		// printf("%lf %lf %lf %d\n", d_gate_m[tid], d_gate_h[tid], d_gate_n[tid] , d_channel_counts[3*tid+1]);
 
-	temp = 36.0 * pow(d_gate_n[tid],4) * d_channel_counts[3*tid+1];
-	gksum += temp;
-	gkeksum += temp*(-12);
+		temp = 120.0 * pow(d_gate_m[tid],3) * d_gate_h[tid] * d_channel_counts[3*tid];
+		gksum += temp;
+		gkeksum += temp*(115);
 
-	gksum += 0.3* d_channel_counts[3*tid+2];
-	gkeksum += temp*(10.6);
+		temp = 36.0 * pow(d_gate_n[tid],4) * d_channel_counts[3*tid+1];
+		gksum += temp;
+		gkeksum += temp*(-12);
 
-	d_GkSum[tid] = gksum;
-	d_GkEkSum[tid] = gkeksum;
-}
+		temp = 0.3* d_channel_counts[3*tid+2];
+		gksum += temp;
+		gkeksum += temp*(10.6);
 
-__global__
-void advance_channel_m(double* vm, double* m, double dt){
-	int tid = blockIdx.x* blockDim.x + threadIdx.x;
-
-	double potential = vm[tid];
-
-	double alpha_m = (0.1 * (25-potential)) / (exp((25-potential)*0.1) - 1);
-	double beta_m = 4 * exp(-1*potential/18);
-
-	m[tid] = alpha_m * dt + m[tid] * ( 1 - (alpha_m + beta_m)*dt);
-
-	//printf("%lf %lf %lf %lf\n", potential, alpha_m, beta_m, m[tid]);
+		d_GkSum[tid] = gksum;
+		d_GkEkSum[tid] = gkeksum;
+	}
 }
 
 
 __global__
-void advance_channel_n(double* vm, double* n, double dt){
+void advance_channel_m(int threadCount, double* vm, double* m, double dt){
 	int tid = blockIdx.x* blockDim.x + threadIdx.x;
 
-	double potential = vm[tid];
+	if(tid < threadCount){
+		double potential = vm[tid];
 
-	double alpha_n = (0.01 * (10-potential)) / (exp((10-potential)*0.1) - 1);
-	double beta_n = 0.125 * exp(-1*potential/80);
+		double alpha_m = (0.1 * (25-potential)) / (exp((25-potential)*0.1) - 1);
+		double beta_m = 4 * exp(-1*potential/18);
 
-	//printf("%f %f %f\n", potential, alpha_n, beta_n);
+		m[tid] = alpha_m * dt + m[tid] * ( 1 - (alpha_m + beta_m)*dt);
 
-	n[tid] = alpha_n * dt + n[tid] * ( 1 - (alpha_n + beta_n)*dt);
+		//printf("%lf %lf %lf %lf\n", potential, alpha_m, beta_m, m[tid]);
+	}
+}
+
+
+__global__
+void advance_channel_n(int threadCount, double* vm, double* n, double dt){
+	int tid = blockIdx.x* blockDim.x + threadIdx.x;
+
+	if(tid < threadCount){
+		double potential = vm[tid];
+
+		double alpha_n = (0.01 * (10-potential)) / (exp((10-potential)*0.1) - 1);
+		double beta_n = 0.125 * exp(-1*potential/80);
+
+		n[tid] = alpha_n * dt + n[tid] * ( 1 - (alpha_n + beta_n)*dt);
+
+		//printf("%lf %lf %lf %lf\n", potential, alpha_n, beta_n, n[tid]);
+	}
 }
 
 __global__
-void advance_channel_h(double* vm, double* h, double dt){
+void advance_channel_h(int threadCount, double* vm, double* h, double dt){
 	int tid = blockIdx.x* blockDim.x + threadIdx.x;
 
-	double potential = vm[tid];
+	if(tid < threadCount){
 
-	double alpha_h = 0.07 * exp(-1*potential/20);
-	double beta_h = 1 / (exp((30-potential)*0.1) + 1);
+		double potential = vm[tid];
 
-	//printf("%f %f %f\n", potential, alpha_h, beta_h);
+		double alpha_h = 0.07 * exp(-1*potential/20);
+		double beta_h = 1 / (exp((30-potential)*0.1) + 1);
 
-	h[tid] = alpha_h * dt + h[tid] * ( 1 - (alpha_h + beta_h)*dt);
+		h[tid] = alpha_h * dt + h[tid] * ( 1 - (alpha_h + beta_h)*dt);
+
+		//printf("%lf %lf %lf %lf\n", potential, alpha_h, beta_h, h[tid]);
+	}
 }
 
 
-//**************************************** CPU kernels ******************************
+//**************************************** CPU Functions ******************************
 
 void print_matrix(cusp::csr_matrix<int, double, cusp::host_memory> &h_A_cusp){
 	for (int i = 0; i < h_A_cusp.num_rows; ++i)
