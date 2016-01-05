@@ -438,24 +438,27 @@ void generate_random_neuron(int num_comp, int num_mutations, vector<vector<int> 
 
 void populate_V(double* h_V, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		//h_V[i] = E_RESTING_POTENTIAL;
-		h_V[i] = 0;
+		h_V[i] = E_RESTING_POTENTIAL;
+		//h_V[i] = 0;
 }
 
 void populate_Cm(double* h_Cm, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		h_Cm[i] = 1.0;
+		//h_Cm[i] = 5;
+		h_Cm[i] = rand()%10 + 2.0;
 
 }
 
 void populate_Ga(double* h_Ga, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		h_Ga[i] = 2;
+		//h_Ga[i] = 0.2;
+		h_Ga[i] = 1/(rand()%10 + 2.0);
 }
 
 void populate_Rm(double* h_Rm, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		h_Rm[i] = 2;
+		//h_Rm[i] = 5;
+		h_Rm[i] = rand()%10 + 2;
 }
 
 void populate_Em(double* h_Em, int num_comp){

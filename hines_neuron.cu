@@ -98,16 +98,22 @@ void fill_matrix_using_junction(cusp::csr_matrix<int, double, cusp::host_memory>
 	double* Rm_ = new double[rows];
 	double* Cm_ = new double[rows];
 	double* Ga_ = new double[rows];
-	double dt = 0.1;
+	double dt = 0.01;
 
 	for (int i = 0; i < rows; ++i){
 		//Ra_[i] = 15.0;
-		Ra_[i] = 15.0 + 3.0 * i;
+		//Ra_[i] = 15.0 + 3.0 * i;
+		Ra_[i] = rand()%10 + 2;
+
 		//Rm_[i] = 45.0; 
-		Rm_[i] = 45.0 + 15.0 * i;
+		//Rm_[i] = 45.0 + 15.0 * i;
+		Rm_[i] = rand()%10 + 2;
+
 		//Cm_[i] = 50.0; 
 		//Cm_[i] =500.0 + 200.0 * i * i;
-		Cm_[i] =5.0 + 2.0 * i * i;
+		//Cm_[i] =5.0 + 2.0 * i * i;
+		Cm_[i] = rand()%10 + 2;
+
 		//Cm_[i] = 1;
 		Ga_[i] = 1/Ra_[i];
 	}		
@@ -242,7 +248,6 @@ void fill_matrix_using_junction(cusp::csr_matrix<int, double, cusp::host_memory>
 		sum += temp;
 	}
 
-	//cusp::print(h_A_cusp);
 	if(DEBUG)
 		print_matrix(h_A_cusp);
 
@@ -250,8 +255,12 @@ void fill_matrix_using_junction(cusp::csr_matrix<int, double, cusp::host_memory>
 	// Populating rhs
 	for (int i = 0; i < rows; ++i){
 		h_b[i] = (RESTING_POTENTIAL*Cm_[i])/dt + (RESTING_POTENTIAL/Rm_[i]);
-		h_b[i] = 1;
+		//h_b[i] = rand()%10 + 2;
 	}
+
+	if(DEBUG)
+		for (int i = 0; i < rows; ++i)
+			cout << h_b[i] << endl;
 
 
 }
@@ -563,6 +572,17 @@ int main(int argc, char *argv[])
 
 		cout << "$" << fn << " " << rows << " " << h_A.num_entries << " " << tridiag_nnz << " " << offdiag_nnz << " " << offdiag_perc << " " << tridiag_occupancy << endl;
 		cout << "#" << fn << " " << speedup << " " << clever_time << " " << cuspZeroTime << " " << clever_iterations << " " << bench_iterations << " " << tridiagTime << " " << cuspHintTime << endl;
+
+		printf("Speedup %.2f\n",speedup);
+		printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
+		printf("Bench  Time %.2f %d \n", cuspZeroTime, bench_iterations);
+		printf("Number of coponenets : %d\n", rows);
+		printf("Number of nonzero el : %d\n", h_A.num_entries);
+		printf("Number of tridiag el : %d\n", tridiag_nnz);
+		printf("Number of offdiag el : %d\n", offdiag_nnz);
+		printf("Off-diagonal %%       : %.2f\n", offdiag_perc);
+		printf("Tridiag-Occupancy    : %.2f\n", tridiag_occupancy);
+		
 	}else{
 		printf("Speedup %.2f\n",speedup);
 		printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);

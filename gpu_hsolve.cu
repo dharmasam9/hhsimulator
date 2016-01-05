@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
 	srand (time(NULL));
 
 	// Required arrays
-	double simulation_time = 0.05, dT = 0.01;
+	double simulation_time = 0.03, dT = 0.01;
 	int time_steps = 0;
 
 	vector<vector<int> > junction_list;
@@ -373,7 +373,7 @@ int main(int argc, char *argv[])
 		int clever_iterations = cleverMonitor.iteration_count();
 		int bench_iterations = zeroMonitor.iteration_count();
 
-		if(!ANALYSIS){
+		if(ANALYSIS){
 			printf("Speedup %.2f\n",speedup);
 			printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
 			printf("Bench  Time %.2f %d \n", cuspZeroTime, bench_iterations);	
