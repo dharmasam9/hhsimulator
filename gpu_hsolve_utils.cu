@@ -23,22 +23,22 @@
 
 using namespace std;
 
-double I_EXT = 50.0;
+double I_EXT = 10;
 
 int CHANNEL_TYPE_NA = 0;
 int CHANNEL_TYPE_K = 1;
 int CHANNEL_TYPE_CL = 2;
 
-int MAX_CHAN_PER_COMP = 15;
+int MAX_CHAN_PER_COMP = 6;
 
-double gbar_Na = 120.0;
-double gbar_K = 36.0;
-double gbar_L = 0.3;
+double gbar_Na = 0.026;
+double gbar_K = 0.070;
+double gbar_L = 0.1;
 
 double E_RESTING_POTENTIAL = -70;
-double E_NA = 115.0;
-double E_K = -12.0;
-double E_CL = 10.6;
+double E_NA = 52.4;
+double E_K = -72.1;
+double E_CL = -57.2;
 
 /* 
 // Populating method using in MOOSE
@@ -202,6 +202,41 @@ void print_matrix(cusp::csr_matrix<int, double, cusp::host_memory> &h_A_cusp){
 
 }
 
+void print_iteration_state(cusp::csr_matrix<int, double, cusp::device_memory> &d_A_cusp, 
+						cusp::array1d<double, cusp::device_memory> &d_b){
+
+	cusp::csr_matrix<int, double, cusp::host_memory> h_A_cusp(d_A_cusp);
+	cusp::array1d<double, cusp::host_memory> h_b(d_b);
+
+	for (int i = 0; i < h_A_cusp.num_rows; ++i)
+	{
+		int j = 0;
+		int k = h_A_cusp.row_offsets[i];
+		// printf("%2d-> ", i);
+		while(j < h_A_cusp.num_rows && k < h_A_cusp.row_offsets[i+1]){
+			if(h_A_cusp.column_indices[k] == j){
+				printf("%7.2f ", h_A_cusp.values[k]);
+				k++;
+			}else{
+				printf("%7.2f ", 0);
+			}
+			j++;
+		}
+
+		while(j < h_A_cusp.num_rows){
+			printf("%7.2f ", 0);
+			j++;
+		}
+
+		printf("%7.2f", h_b[i]);
+
+		cout << endl;
+	}
+	cout << endl;
+
+
+}
+
 void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &junction_list,
 								cusp::csr_matrix<int, double, cusp::host_memory> &h_A_cusp, double* h_b,
 								double* h_maindiag_passive, double* h_tridiag_data, int* h_maindiag_map,
@@ -243,6 +278,11 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 			non_zero_elements.push_back(make_pair(node1*num_comp+node2, -1*gij));
 			non_zero_elements.push_back(make_pair(node2*num_comp+node1, -1*gij));
 
+			if(abs(node2-node1) == 1) // left or right principal diagonal
+				tridiag_nnz += 2;
+			else
+				offdiag_nnz += 2;
+
 		}
 	}	
 
@@ -261,6 +301,8 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 			node1 = junction_list[i][0];
 			h_maindiag_passive[node1] += h_Ga[node1]*(1.0 - h_Ga[node1]/junction_sum);
 
+			//cout << node1 << " " << h_maindiag_passive[node1] << " " << endl;
+
 			// Putting admittance in off diagonal elements.
 			for (int j = 0; j < junction_list[i].size(); ++j)
 			{	
@@ -274,21 +316,34 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 					gj = h_Ga[node2];
 					gij = (gi*gj)/junction_sum;
 
+					// Putting admittance to children
+					if(k == j+1){
+						h_maindiag_passive[node2] += gij;
+					}
+
 					//cout << junction_sum << " " << gi[node1] << " " << gi[node2] << " " << admittance << endl;
 
 					// Pushing element and its symmetry.
 					non_zero_elements.push_back(make_pair(node1*num_comp+node2, -1*gij));
 					non_zero_elements.push_back(make_pair(node2*num_comp+node1, -1*gij));
 
+					if(abs(node2-node1) == 1) // left or right principal diagonal
+						tridiag_nnz += 2;
+					else
+						offdiag_nnz += 2;
+
 				}
 			}
+
 		}
 	}
 
 
 	// Add main diagonal to non_zero_elements.
-	for (int i = 0; i < num_comp; ++i)
+	for (int i = 0; i < num_comp; ++i){
+		tridiag_nnz += 1; // Main diagonal is part of tri diagonal
 		non_zero_elements.push_back(make_pair(i*num_comp+i, h_maindiag_passive[i]));
+	}
 	
 
 	// Initializing a cusp csr matrix
@@ -336,11 +391,9 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 	if(DEBUG)
 		print_matrix(h_A_cusp);
 
-
-	// Populating rhs
+	// Populating rhs to zero
 	for (int i = 0; i < num_comp; ++i)
-		//h_b[i] = (rand()%20)+2;
-		h_b[i] = 1;
+		h_b[i] = 0;
 
 }
 
@@ -438,30 +491,55 @@ void generate_random_neuron(int num_comp, int num_mutations, vector<vector<int> 
 
 void populate_V(double* h_V, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		h_V[i] = E_RESTING_POTENTIAL;
-		//h_V[i] = 0;
+		//h_V[i] = E_RESTING_POTENTIAL;
+		h_V[i] = 0;
 }
 
 void populate_Cm(double* h_Cm, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		//h_Cm[i] = 5;
-		h_Cm[i] = rand()%10 + 2.0;
+		h_Cm[i] = 1;
+		//h_Cm[i] = rand()%10 + 2.0;
 
 }
 
 void populate_Ga(double* h_Ga, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
 		//h_Ga[i] = 0.2;
-		h_Ga[i] = 1/(rand()%10 + 2.0);
+		h_Ga[i] = rand()%10 + 2.0;
 }
 
 void populate_Rm(double* h_Rm, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		//h_Rm[i] = 5;
-		h_Rm[i] = rand()%10 + 2;
+		h_Rm[i] = 5;
+		//h_Rm[i] = rand()%10 + 2.0;
 }
 
 void populate_Em(double* h_Em, int num_comp){
-for (int i = 0; i < num_comp; ++i)
-		h_Em[i] = E_RESTING_POTENTIAL;
+	for (int i = 0; i < num_comp; ++i)
+		//h_Em[i] = E_RESTING_POTENTIAL;
+		h_Em[i] = 0;
+}
+
+
+void initialize_gates(int num_comp, double* h_gate_m, double* h_gate_n, double* h_gate_h){
+	double V= 0 ; 
+	double alpha_n = .01 * ( (10-V) / (exp((10-V)/10)-1) ); 
+	double beta_n = .125*exp(-V/80); 
+	double alpha_m = .1*( (25-V) / (exp((25-V)/10)-1) ); 
+	double beta_m = 4*exp(-V/18); 
+	double alpha_h = .07*exp(-V/20); 
+	double beta_h = 1/(exp((30-V)/10)+1); 
+
+	double init_m = alpha_m/(alpha_m+beta_m);
+	double init_n = alpha_n/(alpha_n+beta_n);
+	double init_h = alpha_h/(alpha_h+beta_h);
+
+	//cout << init_m << " " << init_n << " " << init_h << endl;
+
+	for (int i = 0; i < num_comp; ++i)
+	{
+		h_gate_m[i] = init_m;
+		h_gate_n[i] = init_n;
+		h_gate_h[i] = init_h;
+	}
 }

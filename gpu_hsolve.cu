@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
 	srand (time(NULL));
 
 	// Required arrays
-	double simulation_time = 0.03, dT = 0.01;
+	double simulation_time = 0.3, dT = 0.1;
 	int time_steps = 0;
 
 	vector<vector<int> > junction_list;
@@ -114,10 +114,16 @@ int main(int argc, char *argv[])
 	h_current_inj = new double[time_steps]();
 	h_channel_counts = new int[3*num_comp]();
 
+
+	// Initializing m,h,h
+	initialize_gates(num_comp, h_gate_m, h_gate_n, h_gate_h);
+
 	// Full current through out.
 	for (int i = 0; i < time_steps; ++i){
 		h_current_inj[i] = I_EXT;
 	}
+
+
 
 	/* Managing current
 	int temp = (25*time_steps)/100;
@@ -235,6 +241,9 @@ int main(int argc, char *argv[])
 
 	// **************************** Simulation begins ************************************
 	int DEBUG = 0;
+
+	//print_matrix(h_A_cusp);	
+	
 	// STATE BEFORE SIMULATION
 	if(DEBUG){
 		cusp::print(d_A_cusp);
@@ -258,15 +267,23 @@ int main(int argc, char *argv[])
 
 	// ************************************************
 	if(!ANALYSIS) cout << "SIMULATION BEGINS" << endl;
-	double h_Vplot[num_comp];
 
-	ofstream V_file;
-	V_file.open("output.txt");
+	ofstream V_file, solver_file;
+	V_file.open("output.csv");
+	solver_file.open("solver.csv");
+
+	double offdiag_perc = (offdiag_nnz*100.0)/h_A_cusp.num_entries;
+	double tridiag_occupancy = (tridiag_nnz * 100.0)/ (3*h_A_cusp.num_rows);
+	solver_file << h_A_cusp.num_rows << " " << h_A_cusp.num_entries << " " << tridiag_nnz << " " << offdiag_nnz << " " << offdiag_perc << " " << tridiag_occupancy << endl;
+
+	double h_Vplot[num_comp];
+	double h_Mplot[num_comp];
+	double h_Nplot[num_comp];
+	double h_Hplot[num_comp];
 
 	int NUM_THREAD_PER_BLOCK = 512;
 	int NUM_BLOCKS = ceil((num_comp*1.0)/NUM_THREAD_PER_BLOCK);
 	
-		
 	for (int i = 0; i < time_steps; ++i)
 	{
 
@@ -302,14 +319,9 @@ int main(int argc, char *argv[])
 
 		// Printing hines matrix, tridiag and currentVector
 		// *********************************
+		//cusp::print(d_b_cusp);
 		if(DEBUG){
-			cusp::print(d_A_cusp);
-			cudaMemcpy(h_tridiag_data, d_tridiag_data, sizeof(double)*(3*num_comp), cudaMemcpyDeviceToHost);
-
-			cusp::print(d_b_cusp);
-
-			for (int i = 0; i < num_comp; ++i)
-				cout << h_tridiag_data[i] << " " << h_tridiag_data[num_comp+i] << " " << h_tridiag_data[2*num_comp+i] << endl;	
+			print_iteration_state(d_A_cusp, d_b_cusp);
 		}
 		
 		// *************************************
@@ -335,15 +347,15 @@ int main(int argc, char *argv[])
 
 		// solve the linear system A * x = b with the Conjugate Gradient method
 		cuspZeroTimer.Start();
-			cusp::krylov::gmres(d_A_cusp, d_x_zero_cusp, d_b_cusp_copy1, iteration_limit, zeroMonitor);
-			//cusp::krylov::cg(d_A_cusp, d_x_zero_cusp, d_b_cusp_copy1, zeroMonitor);
+			//cusp::krylov::gmres(d_A_cusp, d_x_zero_cusp, d_b_cusp_copy1, iteration_limit, zeroMonitor);
+			cusp::krylov::cg(d_A_cusp, d_x_zero_cusp, d_b_cusp_copy1, zeroMonitor);
 			cudaDeviceSynchronize();
 		cuspZeroTimer.Stop();
 
 		// solve the linear system A * x = b with the Conjugate Gradient method
 		cuspHintTimer.Start();
-			cusp::krylov::gmres(d_A_cusp, d_b_cusp, d_b_cusp_copy2, iteration_limit, cleverMonitor);
-			//cusp::krylov::cg(d_A_cusp, d_b_cusp, d_b_cusp_copy2, zeroMonitor);
+			//cusp::krylov::gmres(d_A_cusp, d_b_cusp, d_b_cusp_copy2, iteration_limit, cleverMonitor);
+			cusp::krylov::cg(d_A_cusp, d_b_cusp, d_b_cusp_copy2, zeroMonitor);
 			cudaDeviceSynchronize();
 		cuspHintTimer.Stop();
 
@@ -362,6 +374,9 @@ int main(int argc, char *argv[])
 
 		// Transfer V to cpu for plotting
 		cudaMemcpy(h_Vplot, d_V, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
+		cudaMemcpy(h_Mplot, d_gate_m, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
+		cudaMemcpy(h_Hplot, d_gate_h, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
+		cudaMemcpy(h_Nplot, d_gate_n, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
 		
 		// Timings
 		float tridiagTime = tridiagTimer.Elapsed();	
@@ -373,18 +388,19 @@ int main(int argc, char *argv[])
 		int clever_iterations = cleverMonitor.iteration_count();
 		int bench_iterations = zeroMonitor.iteration_count();
 
-		if(ANALYSIS){
-			printf("Speedup %.2f\n",speedup);
-			printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
-			printf("Bench  Time %.2f %d \n", cuspZeroTime, bench_iterations);	
+		if(!ANALYSIS){
+			//printf("Speedup %.2f\n",speedup);
+			//printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
+			//printf("Bench  Time %.2f %d \n", cuspZeroTime, bench_iterations);	
 		}
 		
-
-		V_file << i*dT << "," << h_Vplot[0] << endl;
+		solver_file << i << " " <<  speedup << " " << clever_time << " " << cuspZeroTime << " " << clever_iterations << " " << bench_iterations << " " << tridiagTime << " " << cuspHintTime << endl;
+		V_file << i*dT << "," << h_Vplot[0] <<  "," << h_Mplot[0] << "," << h_Hplot[0] << "," << h_Nplot[0] << " " << clever_iterations << " " << bench_iterations << endl;
 		//cout << i*dT << "," << h_Vplot[0] << endl;
 	}
 
 	V_file.close();
+	solver_file.close();
 
 	return 0;
 }
