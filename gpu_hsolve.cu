@@ -8,6 +8,7 @@ int main(int argc, char *argv[])
 {
 
 	bool ANALYSIS = true;
+	bool DEBUG = false;
 	bool FROM_FILE = false;
 
 	int tridiag_nnz = 0;
@@ -57,7 +58,7 @@ int main(int argc, char *argv[])
 			dT = atof(argv[4]);
 
 		if(argc > 5)
-			ANALYSIS = atoi(argv[5]);
+			DEBUG = atoi(argv[5]);
 
 		if(argc > 6)
 			iteration_limit = atoi(argv[6]);
@@ -85,7 +86,7 @@ int main(int argc, char *argv[])
 			dT = atof(argv[5]);
 
 		if(argc > 6)
-			ANALYSIS = atoi(argv[6]);
+			DEBUG = atoi(argv[6]);
 
 		if(argc > 7)
 			iteration_limit = atoi(argv[7]);
@@ -240,11 +241,11 @@ int main(int argc, char *argv[])
 
 
 	// **************************** Simulation begins ************************************
-	int DEBUG = 0;
 
 	//print_matrix(h_A_cusp);	
 	
 	// STATE BEFORE SIMULATION
+	/*
 	if(DEBUG){
 		cusp::print(d_A_cusp);
 		cudaMemcpy(h_tridiag_data, d_tridiag_data, sizeof(double)*(3*num_comp), cudaMemcpyDeviceToHost);
@@ -264,6 +265,7 @@ int main(int argc, char *argv[])
 		cout << "********************************************" << endl;
 
 	}
+	*/
 
 	// ************************************************
 	if(!ANALYSIS) cout << "SIMULATION BEGINS" << endl;
@@ -347,15 +349,15 @@ int main(int argc, char *argv[])
 
 		// solve the linear system A * x = b with the Conjugate Gradient method
 		cuspZeroTimer.Start();
-			//cusp::krylov::gmres(d_A_cusp, d_x_zero_cusp, d_b_cusp_copy1, iteration_limit, zeroMonitor);
-			cusp::krylov::cg(d_A_cusp, d_x_zero_cusp, d_b_cusp_copy1, zeroMonitor);
+			cusp::krylov::gmres(d_A_cusp, d_x_zero_cusp, d_b_cusp_copy1, iteration_limit, zeroMonitor);
+			//cusp::krylov::cg(d_A_cusp, d_x_zero_cusp, d_b_cusp_copy1, zeroMonitor);
 			cudaDeviceSynchronize();
 		cuspZeroTimer.Stop();
 
 		// solve the linear system A * x = b with the Conjugate Gradient method
 		cuspHintTimer.Start();
-			//cusp::krylov::gmres(d_A_cusp, d_b_cusp, d_b_cusp_copy2, iteration_limit, cleverMonitor);
-			cusp::krylov::cg(d_A_cusp, d_b_cusp, d_b_cusp_copy2, zeroMonitor);
+			cusp::krylov::gmres(d_A_cusp, d_b_cusp, d_b_cusp_copy2, iteration_limit, cleverMonitor);
+			//cusp::krylov::cg(d_A_cusp, d_b_cusp, d_b_cusp_copy2, zeroMonitor);
 			cudaDeviceSynchronize();
 		cuspHintTimer.Stop();
 
@@ -363,13 +365,6 @@ int main(int argc, char *argv[])
 		update_V<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, thrust::raw_pointer_cast(&d_b_cusp[0]), d_V);
 		cudaDeviceSynchronize();
 
-		// print voltage *****************************
-		if(DEBUG){
-			cudaMemcpy(h_V, d_V, sizeof(double)*num_comp, cudaMemcpyDeviceToHost);
-
-			for (int i = 0; i < num_comp; ++i)
-				cout << h_V[i] << endl;	
-		}
 		// ***************************************
 
 		// Transfer V to cpu for plotting
@@ -388,14 +383,14 @@ int main(int argc, char *argv[])
 		int clever_iterations = cleverMonitor.iteration_count();
 		int bench_iterations = zeroMonitor.iteration_count();
 
-		if(!ANALYSIS){
-			//printf("Speedup %.2f\n",speedup);
-			//printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
-			//printf("Bench  Time %.2f %d \n", cuspZeroTime, bench_iterations);	
+		if(i<10){
+			printf("Speedup %.2f\n",speedup);
+			printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
+			printf("Bench  Time %.2f %d \n", cuspZeroTime, bench_iterations);	
 		}
 		
 		solver_file << i << " " <<  speedup << " " << clever_time << " " << cuspZeroTime << " " << clever_iterations << " " << bench_iterations << " " << tridiagTime << " " << cuspHintTime << endl;
-		V_file << i*dT << "," << h_Vplot[0] <<  "," << h_Mplot[0] << "," << h_Hplot[0] << "," << h_Nplot[0] << " " << clever_iterations << " " << bench_iterations << endl;
+		V_file << i*dT << "," << h_Vplot[0] <<  "," << h_Mplot[0] << "," << h_Hplot[0] << "," << h_Nplot[0] << " " << clever_iterations << " " << bench_iterations <<  " " << speedup << endl;
 		//cout << i*dT << "," << h_Vplot[0] << endl;
 	}
 
