@@ -504,8 +504,8 @@ void populate_Cm(double* h_Cm, int num_comp){
 
 void populate_Ga(double* h_Ga, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		//h_Ga[i] = 0.2;
-		h_Ga[i] = rand()%10 + 2.0;
+		h_Ga[i] = 7.0;
+		//h_Ga[i] = rand()%10 + 2.0;
 }
 
 void populate_Rm(double* h_Rm, int num_comp){

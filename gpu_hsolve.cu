@@ -18,11 +18,6 @@ int main(int argc, char *argv[])
 	int  iteration_limit    = 50;
 	float  relative_tolerance = 1e-6;
 
-	// GPU Timers
-	GpuTimer tridiagTimer;
-	GpuTimer cuspZeroTimer;
-	GpuTimer cuspHintTimer;
-	
 	// cusparse handle
 	cusparseHandle_t cusparse_handle = 0;
 	cusparseCreate(&cusparse_handle);
@@ -121,7 +116,10 @@ int main(int argc, char *argv[])
 
 	// Full current through out.
 	for (int i = 0; i < time_steps; ++i){
-		h_current_inj[i] = I_EXT;
+		if(i<=100)
+			h_current_inj[i] = I_EXT;
+		else
+			h_current_inj[i] = 0;
 	}
 
 
@@ -289,35 +287,46 @@ int main(int argc, char *argv[])
 	for (int i = 0; i < time_steps; ++i)
 	{
 
-		// ADVANCE m,n,h channels
-		advance_channel_m<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, d_gate_m, dT);
-		advance_channel_n<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, d_gate_n, dT);
-		advance_channel_h<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, d_gate_h, dT);
-		cudaDeviceSynchronize();
-	
-		// CALCULATE Gk and GkEk values
-		calculate_gk_gkek_sum<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, 
-											d_gate_m, d_gate_h, d_gate_n, 
-											d_channel_counts, 
-											d_GkSum, d_GkEkSum);
-		cudaDeviceSynchronize();
+		// GPU Timers
+		GpuTimer tridiagTimer;
+		GpuTimer cuspZeroTimer;
+		GpuTimer cuspHintTimer;
+		
+		GpuTimer channelTimer;
+		GpuTimer currentTimer;
 
-		// CALCULATE currents
-		double externalCurrent = h_current_inj[i];
-		calculate_currents<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, d_Cm, dT, 
-							d_Em, d_Rm, 
-							d_GkEkSum, externalCurrent, 
-							thrust::raw_pointer_cast(&d_b_cusp[0]));
-		cudaDeviceSynchronize();
+		channelTimer.Start();
+			// ADVANCE m,n,h channels
+			advance_channel_m<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, d_gate_m, dT);
+			advance_channel_n<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, d_gate_n, dT);
+			advance_channel_h<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, d_gate_h, dT);
+			cudaDeviceSynchronize();
+		channelTimer.Stop();
+		
+		currentTimer.Start();
+			// CALCULATE Gk and GkEk values
+			calculate_gk_gkek_sum<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, 
+												d_gate_m, d_gate_h, d_gate_n, 
+												d_channel_counts, 
+												d_GkSum, d_GkEkSum);
+			cudaDeviceSynchronize();
 
+			// CALCULATE currents
+			double externalCurrent = h_current_inj[i];
+			calculate_currents<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, d_V, d_Cm, dT, 
+								d_Em, d_Rm, 
+								d_GkEkSum, externalCurrent, 
+								thrust::raw_pointer_cast(&d_b_cusp[0]));
+			cudaDeviceSynchronize();
 
-		// UPDATE matrix and TRIDIAG
-		update_matrix<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, num_comp, d_maindiag_passive, d_GkSum, 
-					 d_maindiag_map, 
-					 thrust::raw_pointer_cast(&(d_A_cusp.values[0])), d_tridiag_data);
+			// UPDATE matrix and TRIDIAG
+			update_matrix<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, num_comp, d_maindiag_passive, d_GkSum, 
+						 d_maindiag_map, 
+						 thrust::raw_pointer_cast(&(d_A_cusp.values[0])), d_tridiag_data);
 
-		//cudaMemcpy(h_b, d_b, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
-		cudaDeviceSynchronize();
+			//cudaMemcpy(h_b, d_b, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
+			cudaDeviceSynchronize();
+		currentTimer.Stop();
 
 		// Printing hines matrix, tridiag and currentVector
 		// *********************************
@@ -377,20 +386,27 @@ int main(int argc, char *argv[])
 		float tridiagTime = tridiagTimer.Elapsed();	
 		float cuspHintTime = cuspHintTimer.Elapsed();
 		float cuspZeroTime = cuspZeroTimer.Elapsed();
+		float channelTime = channelTimer.Elapsed();
+		float currentTime = currentTimer.Elapsed();
 
 		float clever_time = tridiagTime+cuspHintTime;
 		float speedup = cuspZeroTime/clever_time;
 		int clever_iterations = cleverMonitor.iteration_count();
 		int bench_iterations = zeroMonitor.iteration_count();
 
+		float channelPerc = (channelTime * 100)/(channelTime + currentTime + clever_time);
+		float currentPerc = (currentTime * 100)/(channelTime + currentTime + clever_time);
+		float solverPerc = (clever_time * 100)/(channelTime + currentTime + clever_time);
+
 		if(i<10){
 			printf("Speedup %.2f\n",speedup);
 			printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
 			printf("Bench  Time %.2f %d \n", cuspZeroTime, bench_iterations);	
+			printf("profil Time %.2f %.2f %.2f\n", channelPerc, currentPerc, solverPerc);
 		}
 		
-		solver_file << i << " " <<  speedup << " " << clever_time << " " << cuspZeroTime << " " << clever_iterations << " " << bench_iterations << " " << tridiagTime << " " << cuspHintTime << endl;
-		V_file << i*dT << "," << h_Vplot[0] <<  "," << h_Mplot[0] << "," << h_Hplot[0] << "," << h_Nplot[0] << " " << clever_iterations << " " << bench_iterations <<  " " << speedup << endl;
+		solver_file << i << " " <<  speedup << " " << clever_time << " " << cuspZeroTime << " " << clever_iterations << " " << bench_iterations << " " << tridiagTime << " " << cuspHintTime << " " << channelPerc << " " << currentPerc << " " << solverPerc <<  endl;
+		V_file << i*dT << "," << h_Vplot[0] <<  "," << h_Mplot[0] << "," << h_Hplot[0] << "," << h_Nplot[0] << "," << clever_iterations << "," << bench_iterations <<  "," << (bench_iterations-clever_iterations) << "," << speedup << endl;
 		//cout << i*dT << "," << h_Vplot[0] << endl;
 	}
 
