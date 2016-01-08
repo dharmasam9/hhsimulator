@@ -116,10 +116,8 @@ int main(int argc, char *argv[])
 
 	// Full current through out.
 	for (int i = 0; i < time_steps; ++i){
-		if(i<=100)
-			h_current_inj[i] = I_EXT;
-		else
-			h_current_inj[i] = 0;
+		h_current_inj[i] = I_EXT;
+		
 	}
 
 
@@ -137,6 +135,7 @@ int main(int argc, char *argv[])
 	for (int i = 0; i < num_comp; ++i)
 	{
 		int num_channels = max(3,rand()%MAX_CHAN_PER_COMP);
+		//int num_channels = MAX_CHAN_PER_COMP;
 		// Making sure compartment has atleast one Na,K,Cl channel
 		int chan_type, na_count = 1, k_count = 1, cl_count = 1;
 		for (int j = 0; j < num_channels-3; ++j)
@@ -276,6 +275,7 @@ int main(int argc, char *argv[])
 	double tridiag_occupancy = (tridiag_nnz * 100.0)/ (3*h_A_cusp.num_rows);
 	solver_file << h_A_cusp.num_rows << " " << h_A_cusp.num_entries << " " << tridiag_nnz << " " << offdiag_nnz << " " << offdiag_perc << " " << tridiag_occupancy << endl;
 
+
 	double h_Vplot[num_comp];
 	double h_Mplot[num_comp];
 	double h_Nplot[num_comp];
@@ -342,6 +342,8 @@ int main(int argc, char *argv[])
 		cusp::array1d<double,cusp::device_memory> d_b_cusp_copy2(d_b_cusp);
 		cusp::array1d<double, cusp::device_memory> d_x_zero_cusp(num_comp, 0);
 
+		cusp::array1d<double,cusp::host_memory> h_b_cusp_copy3(d_b_cusp);
+
 		// Solver
 		tridiagTimer.Start();
 		cusparseDgtsv(cusparse_handle,
@@ -381,6 +383,10 @@ int main(int argc, char *argv[])
 		cudaMemcpy(h_Mplot, d_gate_m, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
 		cudaMemcpy(h_Hplot, d_gate_h, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
 		cudaMemcpy(h_Nplot, d_gate_n, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
+
+		cudaMemcpy(h_tridiag_data, d_tridiag_data, sizeof(double)*(3*num_comp), cudaMemcpyDeviceToHost);
+
+		//cout << h_tridiag_data[i] << " " << h_tridiag_data[num_comp+i] << " " << h_tridiag_data[2*num_comp+i] << endl;
 		
 		// Timings
 		float tridiagTime = tridiagTimer.Elapsed();	
@@ -403,10 +409,14 @@ int main(int argc, char *argv[])
 			printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
 			printf("Bench  Time %.2f %d \n", cuspZeroTime, bench_iterations);	
 			printf("profil Time %.2f %.2f %.2f\n", channelPerc, currentPerc, solverPerc);
+
+			if(i==9)
+				cout << h_A_cusp.num_rows << " " << h_A_cusp.num_entries << " " << tridiag_nnz << " " << offdiag_nnz << " " << offdiag_perc << " " << tridiag_occupancy << endl;	
+
 		}
 		
 		solver_file << i << " " <<  speedup << " " << clever_time << " " << cuspZeroTime << " " << clever_iterations << " " << bench_iterations << " " << tridiagTime << " " << cuspHintTime << " " << channelPerc << " " << currentPerc << " " << solverPerc <<  endl;
-		V_file << i*dT << "," << h_Vplot[0] <<  "," << h_Mplot[0] << "," << h_Hplot[0] << "," << h_Nplot[0] << "," << clever_iterations << "," << bench_iterations <<  "," << (bench_iterations-clever_iterations) << "," << speedup << endl;
+		V_file << i*dT << "," << h_Vplot[0] <<  "," << h_tridiag_data[num_comp] << "," << h_b_cusp_copy3[0]  << "," << h_Mplot[0] << "," << h_Hplot[0] << "," << h_Nplot[0] << "," << clever_iterations << "," << bench_iterations <<  "," << (bench_iterations-clever_iterations) << "," << speedup << endl;
 		//cout << i*dT << "," << h_Vplot[0] << endl;
 	}
 

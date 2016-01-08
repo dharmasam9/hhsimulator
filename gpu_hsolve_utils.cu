@@ -29,7 +29,7 @@ int CHANNEL_TYPE_NA = 0;
 int CHANNEL_TYPE_K = 1;
 int CHANNEL_TYPE_CL = 2;
 
-int MAX_CHAN_PER_COMP = 6;
+int MAX_CHAN_PER_COMP = 12;
 
 double gbar_Na = 0.026;
 double gbar_K = 0.070;
