@@ -48,6 +48,16 @@ tree[ i ].Cm = 500.0 + 200.0 * i * i;
 Em.push_back( -0.06 );
 V.push_back( -0.06 + 0.01 * i );
 */
+__global__
+void compute_fast_x(int threadCount, int num_comp, double* d_tridiag_data, 
+			double* d_b, 
+			double* d_x){
+	int tid = blockIdx.x* blockDim.x + threadIdx.x;
+
+	if(tid < threadCount){
+		d_x[tid] = d_b[tid]/d_tridiag_data[num_comp+tid];
+	}
+}
 
 __global__
 void update_V(int threadCount, double* d_new_V, double* d_V){
@@ -203,18 +213,23 @@ void print_matrix(cusp::csr_matrix<int, double, cusp::host_memory> &h_A_cusp){
 }
 
 void print_iteration_state(cusp::csr_matrix<int, double, cusp::device_memory> &d_A_cusp, 
+						cusp::array1d<double, cusp::device_memory> &d_x,
 						cusp::array1d<double, cusp::device_memory> &d_b){
 
 	cusp::csr_matrix<int, double, cusp::host_memory> h_A_cusp(d_A_cusp);
+	cusp::array1d<double, cusp::host_memory> h_x(d_x);
 	cusp::array1d<double, cusp::host_memory> h_b(d_b);
 
 	for (int i = 0; i < h_A_cusp.num_rows; ++i)
 	{
 		int j = 0;
 		int k = h_A_cusp.row_offsets[i];
+		double main_diag_value = 1;
 		// printf("%2d-> ", i);
 		while(j < h_A_cusp.num_rows && k < h_A_cusp.row_offsets[i+1]){
 			if(h_A_cusp.column_indices[k] == j){
+				if(i == j) 
+					main_diag_value = h_A_cusp.values[k];
 				printf("%7.2f ", h_A_cusp.values[k]);
 				k++;
 			}else{
@@ -228,7 +243,7 @@ void print_iteration_state(cusp::csr_matrix<int, double, cusp::device_memory> &d
 			j++;
 		}
 
-		printf("%7.2f", h_b[i]);
+		printf("| %7.6f | %7.6f | %7.6f", h_x[i], h_b[i], h_b[i]/main_diag_value);
 
 		cout << endl;
 	}

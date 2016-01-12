@@ -26,7 +26,7 @@ int main(int argc, char *argv[])
 	srand (time(NULL));
 
 	// Required arrays
-	double simulation_time = 0.3, dT = 0.1;
+	double simulation_time = 0.03, dT = 0.01;
 	int time_steps = 0;
 
 	vector<vector<int> > junction_list;
@@ -117,7 +117,7 @@ int main(int argc, char *argv[])
 	// Full current through out.
 	for (int i = 0; i < time_steps; ++i){
 		h_current_inj[i] = I_EXT;
-		
+		//h_current_inj[i] = 0;		
 	}
 
 
@@ -134,25 +134,39 @@ int main(int argc, char *argv[])
 	// Randomly assigning channel types for chann in compartment.
 	for (int i = 0; i < num_comp; ++i)
 	{
-		int num_channels = max(3,rand()%MAX_CHAN_PER_COMP);
-		//int num_channels = MAX_CHAN_PER_COMP;
-		// Making sure compartment has atleast one Na,K,Cl channel
-		int chan_type, na_count = 1, k_count = 1, cl_count = 1;
-		for (int j = 0; j < num_channels-3; ++j)
-		{
-			chan_type = rand()%3;
-			switch(chan_type){
-				case 0:
-					na_count++;
-					break;
-				case 1:
-					k_count++;
-					break;
-				case 2:
-					cl_count++;
-					break;
+		int num_channels;
+		int chan_type, na_count, k_count, cl_count;
+
+		bool fill_random = false;
+		
+		if(fill_random){
+			num_channels = max(3,rand()%MAX_CHAN_PER_COMP);
+			// Making sure compartment has atleast one Na,K,Cl channel
+			na_count = 1; k_count = 1; cl_count = 1;
+			for (int j = 0; j < num_channels-3; ++j)
+			{
+				chan_type = rand()%3;
+				switch(chan_type){
+					case 0:
+						na_count++;
+						break;
+					case 1:
+						k_count++;
+						break;
+					case 2:
+						cl_count++;
+						break;
+				}
 			}
+		}else{
+			// 60-30-10 proportions of Na,K,Cl
+			na_count = 3;
+			k_count = 3;
+			cl_count = 3;
 		}
+		
+		if(i == 0)
+			cout << na_count << " " << k_count << " " << cl_count << endl;
 
 		h_channel_counts[i*3] = na_count;
 		h_channel_counts[i*3+1] = k_count;
@@ -288,12 +302,13 @@ int main(int argc, char *argv[])
 	{
 
 		// GPU Timers
-		GpuTimer tridiagTimer;
 		GpuTimer cuspZeroTimer;
-		GpuTimer cuspHintTimer;
+		GpuTimer tridiagTimer, cuspHintTimer;
+		GpuTimer fastXTimer, cuspFastTimer;
 		
 		GpuTimer channelTimer;
 		GpuTimer currentTimer;
+
 
 		channelTimer.Start();
 			// ADVANCE m,n,h channels
@@ -328,19 +343,13 @@ int main(int argc, char *argv[])
 			cudaDeviceSynchronize();
 		currentTimer.Stop();
 
-		// Printing hines matrix, tridiag and currentVector
-		// *********************************
-		//cusp::print(d_b_cusp);
-		if(DEBUG){
-			print_iteration_state(d_A_cusp, d_b_cusp);
-		}
-		
-		// *************************************
-
 		// Cloning b,because tri diagonal solver overrites it with answer
 		cusp::array1d<double,cusp::device_memory> d_b_cusp_copy1(d_b_cusp);
 		cusp::array1d<double,cusp::device_memory> d_b_cusp_copy2(d_b_cusp);
+		cusp::array1d<double,cusp::device_memory> d_b_cusp_copy3(d_b_cusp);
+
 		cusp::array1d<double, cusp::device_memory> d_x_zero_cusp(num_comp, 0);
+		cusp::array1d<double, cusp::device_memory> d_x_fast_cusp(num_comp, 0);
 
 		cusp::array1d<double,cusp::host_memory> h_b_cusp_copy3(d_b_cusp);
 
@@ -356,25 +365,43 @@ int main(int argc, char *argv[])
 
 
 		cusp::monitor<double> cleverMonitor(d_b_cusp_copy1, iteration_limit, relative_tolerance, 0, !ANALYSIS);
-		cusp::monitor<float> zeroMonitor(d_b_cusp_copy2, iteration_limit, relative_tolerance, 0, !ANALYSIS);
+		cusp::monitor<double> zeroMonitor(d_b_cusp_copy2, iteration_limit, relative_tolerance, 0, !ANALYSIS);
+		cusp::monitor<double> fastMonitor(d_b_cusp_copy3, iteration_limit, relative_tolerance, 0, !ANALYSIS);
 
-		// solve the linear system A * x = b with the Conjugate Gradient method
+		// solve the linear system A * x = b with the GMRES method
 		cuspZeroTimer.Start();
 			cusp::krylov::gmres(d_A_cusp, d_x_zero_cusp, d_b_cusp_copy1, iteration_limit, zeroMonitor);
 			//cusp::krylov::cg(d_A_cusp, d_x_zero_cusp, d_b_cusp_copy1, zeroMonitor);
 			cudaDeviceSynchronize();
 		cuspZeroTimer.Stop();
 
-		// solve the linear system A * x = b with the Conjugate Gradient method
+		// solve the linear system A * x = b with the GMRES method
 		cuspHintTimer.Start();
 			cusp::krylov::gmres(d_A_cusp, d_b_cusp, d_b_cusp_copy2, iteration_limit, cleverMonitor);
 			//cusp::krylov::cg(d_A_cusp, d_b_cusp, d_b_cusp_copy2, zeroMonitor);
 			cudaDeviceSynchronize();
 		cuspHintTimer.Stop();
 
+		// Get fast value
+		fastXTimer.Start();
+			compute_fast_x<<<NUM_BLOCKS, NUM_THREAD_PER_BLOCK>>>(num_comp, num_comp, d_tridiag_data, 
+				thrust::raw_pointer_cast(&d_b_cusp_copy2[0]),
+				thrust::raw_pointer_cast(&d_x_fast_cusp[0]));
+		fastXTimer.Stop();
+
+		cuspFastTimer.Start();
+			cusp::krylov::gmres(d_A_cusp, d_x_fast_cusp, d_b_cusp_copy3, iteration_limit, fastMonitor);
+			cudaDeviceSynchronize();
+		cuspFastTimer.Stop();
+
 		// UPDATE V
 		update_V<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, thrust::raw_pointer_cast(&d_b_cusp[0]), d_V);
 		cudaDeviceSynchronize();
+
+		if(DEBUG && i<10){
+			print_iteration_state(d_A_cusp, d_b_cusp, d_b_cusp_copy1);
+			cudaDeviceSynchronize();
+		}
 
 		// ***************************************
 
@@ -392,6 +419,7 @@ int main(int argc, char *argv[])
 		float tridiagTime = tridiagTimer.Elapsed();	
 		float cuspHintTime = cuspHintTimer.Elapsed();
 		float cuspZeroTime = cuspZeroTimer.Elapsed();
+		float cuspFastTime = fastXTimer.Elapsed() + cuspFastTimer.Elapsed();
 		float channelTime = channelTimer.Elapsed();
 		float currentTime = currentTimer.Elapsed();
 
@@ -399,6 +427,7 @@ int main(int argc, char *argv[])
 		float speedup = cuspZeroTime/clever_time;
 		int clever_iterations = cleverMonitor.iteration_count();
 		int bench_iterations = zeroMonitor.iteration_count();
+		int fast_iterations = fastMonitor.iteration_count();
 
 		float channelPerc = (channelTime * 100)/(channelTime + currentTime + clever_time);
 		float currentPerc = (currentTime * 100)/(channelTime + currentTime + clever_time);
@@ -407,6 +436,7 @@ int main(int argc, char *argv[])
 		if(i<10){
 			printf("Speedup %.2f\n",speedup);
 			printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
+			printf("Fast   Time %.2f %d (%.2f + %.2f)\n", cuspFastTime, fast_iterations, fastXTimer.Elapsed(), cuspFastTimer.Elapsed());
 			printf("Bench  Time %.2f %d \n", cuspZeroTime, bench_iterations);	
 			printf("profil Time %.2f %.2f %.2f\n", channelPerc, currentPerc, solverPerc);
 
@@ -415,8 +445,8 @@ int main(int argc, char *argv[])
 
 		}
 		
-		solver_file << i << " " <<  speedup << " " << clever_time << " " << cuspZeroTime << " " << clever_iterations << " " << bench_iterations << " " << tridiagTime << " " << cuspHintTime << " " << channelPerc << " " << currentPerc << " " << solverPerc <<  endl;
-		V_file << i*dT << "," << h_Vplot[0] <<  "," << h_tridiag_data[num_comp] << "," << h_b_cusp_copy3[0]  << "," << h_Mplot[0] << "," << h_Hplot[0] << "," << h_Nplot[0] << "," << clever_iterations << "," << bench_iterations <<  "," << (bench_iterations-clever_iterations) << "," << speedup << endl;
+		solver_file << i << " " <<  speedup << " " << clever_time << " " << cuspFastTime << " " << cuspZeroTime << " " << clever_iterations << " " << fast_iterations << " " << bench_iterations << " " << tridiagTime << " " << cuspHintTime << " " << channelPerc << " " << currentPerc << " " << solverPerc <<  endl;
+		V_file << i*dT << "," << h_Vplot[1] <<  "," << h_tridiag_data[num_comp] << "," << h_b_cusp_copy3[0]  << "," << h_Mplot[0] << "," << h_Hplot[0] << "," << h_Nplot[0] << "," << clever_iterations << "," << fast_iterations <<  "," << bench_iterations << "," << (bench_iterations-clever_iterations) << "," << (bench_iterations-fast_iterations) << "," << speedup << endl;
 		//cout << i*dT << "," << h_Vplot[0] << endl;
 	}
 
