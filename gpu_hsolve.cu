@@ -281,9 +281,14 @@ int main(int argc, char *argv[])
 	// ************************************************
 	if(!ANALYSIS) cout << "SIMULATION BEGINS" << endl;
 
-	ofstream V_file, solver_file;
-	V_file.open("output.csv");
-	solver_file.open("solver.csv");
+	ofstream V_file, Maindiag_file, B_file;
+	ofstream solver_file;
+
+	V_file.open("file_voltage.csv");
+	Maindiag_file.open("file_main_diag.csv");
+	B_file.open("file_b_vector.csv");
+	solver_file.open("file_solver.csv");
+
 
 	double offdiag_perc = (offdiag_nnz*100.0)/h_A_cusp.num_entries;
 	double tridiag_occupancy = (tridiag_nnz * 100.0)/ (3*h_A_cusp.num_rows);
@@ -353,6 +358,12 @@ int main(int argc, char *argv[])
 
 		cusp::array1d<double,cusp::host_memory> h_b_cusp_copy3(d_b_cusp);
 
+		/*
+		// Set to zero
+		cudaMemset(thrust::raw_pointer_cast(&d_b_cusp[0]), 0, num_comp*sizeof(double));
+		cudaDeviceSynchronize();
+		*/
+
 		// Solver
 		tridiagTimer.Start();
 		cusparseDgtsv(cusparse_handle,
@@ -387,6 +398,7 @@ int main(int argc, char *argv[])
 			compute_fast_x<<<NUM_BLOCKS, NUM_THREAD_PER_BLOCK>>>(num_comp, num_comp, d_tridiag_data, 
 				thrust::raw_pointer_cast(&d_b_cusp_copy2[0]),
 				thrust::raw_pointer_cast(&d_x_fast_cusp[0]));
+			cudaDeviceSynchronize();
 		fastXTimer.Stop();
 
 		cuspFastTimer.Start();
@@ -398,7 +410,7 @@ int main(int argc, char *argv[])
 		update_V<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, thrust::raw_pointer_cast(&d_b_cusp[0]), d_V);
 		cudaDeviceSynchronize();
 
-		if(DEBUG && i<10){
+		if(DEBUG && i<=10){
 			print_iteration_state(d_A_cusp, d_b_cusp, d_b_cusp_copy1);
 			cudaDeviceSynchronize();
 		}
@@ -440,17 +452,48 @@ int main(int argc, char *argv[])
 			printf("Bench  Time %.2f %d \n", cuspZeroTime, bench_iterations);	
 			printf("profil Time %.2f %.2f %.2f\n", channelPerc, currentPerc, solverPerc);
 
-			if(i==9)
-				cout << h_A_cusp.num_rows << " " << h_A_cusp.num_entries << " " << tridiag_nnz << " " << offdiag_nnz << " " << offdiag_perc << " " << tridiag_occupancy << endl;	
-
 		}
-		
-		solver_file << i << " " <<  speedup << " " << clever_time << " " << cuspFastTime << " " << cuspZeroTime << " " << clever_iterations << " " << fast_iterations << " " << bench_iterations << " " << tridiagTime << " " << cuspHintTime << " " << channelPerc << " " << currentPerc << " " << solverPerc <<  endl;
-		V_file << i*dT << "," << h_Vplot[1] <<  "," << h_tridiag_data[num_comp] << "," << h_b_cusp_copy3[0]  << "," << h_Mplot[0] << "," << h_Hplot[0] << "," << h_Nplot[0] << "," << clever_iterations << "," << fast_iterations <<  "," << bench_iterations << "," << (bench_iterations-clever_iterations) << "," << (bench_iterations-fast_iterations) << "," << speedup << endl;
-		//cout << i*dT << "," << h_Vplot[0] << endl;
+
+		// Capturing headers
+		if(i==0){
+			solver_file << "#timestep,speedup,clever_time,fast_time,zero_time,clever_iter,fast_iter,zero_iter,clever_sav,fast_sav,tridiagTime,cuspHintTime,channel%%,current%%,solver%%" << endl;
+			V_file << "timestep" << ","; Maindiag_file << "timestep" << ","; B_file << "timestep" << ",";
+			for(int j=0;j<num_comp;j++){
+				V_file << j << ","; Maindiag_file << j << ","; B_file << j << ",";
+			}
+			V_file << endl; Maindiag_file << endl; B_file << endl;
+		}
+
+		// Capturing data in files.
+		solver_file << i*dT << "," <<  
+					speedup << "," << 
+					clever_time << "," << cuspFastTime << "," << cuspZeroTime << "," << 
+					clever_iterations << "," << fast_iterations << "," << bench_iterations << "," 
+					<< (bench_iterations-clever_iterations) << "," << (bench_iterations-fast_iterations) << ","
+					<< tridiagTime << "," << cuspHintTime << "," 
+					<< channelPerc << "," << currentPerc << "," << solverPerc <<  endl;
+
+		V_file << i*dT << ",";
+		Maindiag_file << i*dT << ",";
+		B_file << i*dT << ",";
+
+		for (int j = 0; j < num_comp; ++j)
+		{
+			V_file << h_Vplot[j] << ",";
+			Maindiag_file << h_tridiag_data[num_comp+j] << ",";
+			B_file << h_b_cusp_copy3[j] << ",";
+			if(j==num_comp-1){
+				V_file << endl;
+				Maindiag_file << endl;
+				B_file << endl;
+			}
+		}
+
 	}
 
 	V_file.close();
+	Maindiag_file.close();
+	B_file.close();
 	solver_file.close();
 
 	return 0;
