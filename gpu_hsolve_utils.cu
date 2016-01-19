@@ -60,11 +60,11 @@ void compute_fast_x(int threadCount, int num_comp, double* d_tridiag_data,
 }
 
 __global__
-void update_V(int threadCount, double* d_new_V, double* d_V){
+void copy_device_vector(int threadCount, double* d_src, double* d_dest){
 	int tid = blockIdx.x* blockDim.x + threadIdx.x;
 
 	if(tid < threadCount){
-		d_V[tid] = d_new_V[tid];
+		d_dest[tid] = d_src[tid];
 	}
 }
 

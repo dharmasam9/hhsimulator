@@ -37,6 +37,7 @@ int main(int argc, char *argv[])
 	double* h_V,*h_Cm, *h_Ga, *h_Rm, *h_Em;
 	double* h_gate_m,*h_gate_h,*h_gate_n;
 	double* h_current_inj;
+	int skip_stride = 1;
 
 	// If from file read the structure or generate structure
 	if(argc > 1)
@@ -53,13 +54,17 @@ int main(int argc, char *argv[])
 			dT = atof(argv[4]);
 
 		if(argc > 5)
-			DEBUG = atoi(argv[5]);
+			skip_stride = atoi(argv[5]);
 
 		if(argc > 6)
-			iteration_limit = atoi(argv[6]);
+			DEBUG = atoi(argv[6]);
 
 		if(argc > 7)
-			relative_tolerance = pow(10,-1*atoi(argv[7]));
+			iteration_limit = atoi(argv[7]);
+
+		if(argc > 8)
+			relative_tolerance = pow(10,-1*atoi(argv[8]));
+
 
 		junction_list.resize(num_comp);
 		get_structure_from_neuron(argv[2], num_comp, junction_list);
@@ -81,13 +86,16 @@ int main(int argc, char *argv[])
 			dT = atof(argv[5]);
 
 		if(argc > 6)
-			DEBUG = atoi(argv[6]);
+			skip_stride = atoi(argv[6]);
 
 		if(argc > 7)
-			iteration_limit = atoi(argv[7]);
+			DEBUG = atoi(argv[7]);
 
 		if(argc > 8)
-			relative_tolerance = pow(10,-1*atoi(argv[8]));
+			iteration_limit = atoi(argv[8]);
+
+		if(argc > 9)
+			relative_tolerance = pow(10,-1*atoi(argv[9]));
 
 		junction_list.resize(num_comp);
 		generate_random_neuron(num_comp, num_mutations, junction_list);
@@ -165,8 +173,10 @@ int main(int argc, char *argv[])
 			cl_count = 3;
 		}
 		
+		/*
 		if(i == 0)
 			cout << na_count << " " << k_count << " " << cl_count << endl;
+		*/
 
 		h_channel_counts[i*3] = na_count;
 		h_channel_counts[i*3+1] = k_count;
@@ -205,7 +215,8 @@ int main(int argc, char *argv[])
 	double* d_gate_m,*d_gate_h,*d_gate_n;
 	double* d_current_inj;
 	int* d_channel_counts;
-	cusp::array1d<double,cusp::device_memory> d_b_cusp(num_comp);
+	cusp::array1d<double,cusp::device_memory> d_tridiag_sol(num_comp,0);
+	cusp::array1d<double,cusp::device_memory> d_b_cusp(num_comp,0);
 
 	cusp::csr_matrix<int, double, cusp::device_memory> d_A_cusp(h_A_cusp);
 	double* d_maindiag_passive, *d_tridiag_data;
@@ -302,6 +313,12 @@ int main(int argc, char *argv[])
 
 	int NUM_THREAD_PER_BLOCK = 512;
 	int NUM_BLOCKS = ceil((num_comp*1.0)/NUM_THREAD_PER_BLOCK);
+
+	float total_clever_time = 0;
+	float total_fast_time = 0;
+	float total_zero_time = 0;
+	int total_clever_savings = 0;
+	int total_fast_savings = 0;
 	
 	for (int i = 0; i < time_steps; ++i)
 	{
@@ -365,15 +382,30 @@ int main(int argc, char *argv[])
 		*/
 
 		// Solver
-		tridiagTimer.Start();
-		cusparseDgtsv(cusparse_handle,
-					  num_comp,
-					  1,
-					  d_tridiag_data, &d_tridiag_data[num_comp], &d_tridiag_data[num_comp*2],
-					  thrust::raw_pointer_cast(&d_b_cusp[0]), num_comp);
-		cudaDeviceSynchronize();
-		tridiagTimer.Stop();
+		
+		// Calculates tri diagonal solution every skip_stride
+		if(i%skip_stride == 0){
+			tridiagTimer.Start();
+				cusparseDgtsv(cusparse_handle,
+						  num_comp,
+						  1,
+						  d_tridiag_data, &d_tridiag_data[num_comp], &d_tridiag_data[num_comp*2],
+						  thrust::raw_pointer_cast(&d_b_cusp[0]), num_comp);
+				cudaDeviceSynchronize();
+			tridiagTimer.Stop();
 
+			// Archive tridiagonal solution	
+			copy_device_vector<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, thrust::raw_pointer_cast(&d_b_cusp[0]), thrust::raw_pointer_cast(&d_tridiag_sol[0]));
+			cudaDeviceSynchronize();
+
+		}else{
+			// Get tridiagonal solution from archive
+			copy_device_vector<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, thrust::raw_pointer_cast(&d_tridiag_sol[0]), thrust::raw_pointer_cast(&d_b_cusp[0]));
+			cudaDeviceSynchronize();
+
+			tridiagTimer.Start(); tridiagTimer.Stop(); // Calling for homogenity
+		}
+		
 
 		cusp::monitor<double> cleverMonitor(d_b_cusp_copy1, iteration_limit, relative_tolerance, 0, !ANALYSIS);
 		cusp::monitor<double> zeroMonitor(d_b_cusp_copy2, iteration_limit, relative_tolerance, 0, !ANALYSIS);
@@ -407,7 +439,7 @@ int main(int argc, char *argv[])
 		cuspFastTimer.Stop();
 
 		// UPDATE V
-		update_V<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, thrust::raw_pointer_cast(&d_b_cusp[0]), d_V);
+		copy_device_vector<<<NUM_BLOCKS,NUM_THREAD_PER_BLOCK>>>(num_comp, thrust::raw_pointer_cast(&d_b_cusp[0]), d_V);
 		cudaDeviceSynchronize();
 
 		if(DEBUG && i<=10){
@@ -445,7 +477,13 @@ int main(int argc, char *argv[])
 		float currentPerc = (currentTime * 100)/(channelTime + currentTime + clever_time);
 		float solverPerc = (clever_time * 100)/(channelTime + currentTime + clever_time);
 
-		if(i<10){
+		total_clever_time += clever_time;
+		total_fast_time += cuspFastTime;
+		total_zero_time += cuspZeroTime;
+		total_clever_savings += (bench_iterations-clever_iterations);
+		total_fast_savings += (bench_iterations-fast_iterations);
+
+		if(i<0){
 			printf("Speedup %.2f\n",speedup);
 			printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
 			printf("Fast   Time %.2f %d (%.2f + %.2f)\n", cuspFastTime, fast_iterations, fastXTimer.Elapsed(), cuspFastTimer.Elapsed());
@@ -490,6 +528,8 @@ int main(int argc, char *argv[])
 		}
 
 	}
+
+	cout << fixed << total_clever_time << "," << total_fast_time << "," << total_zero_time << "," << total_clever_savings <<  "," << total_fast_savings <<  endl;
 
 	V_file.close();
 	Maindiag_file.close();
