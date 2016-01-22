@@ -468,7 +468,8 @@ int main(int argc, char *argv[])
 		float currentTime = currentTimer.Elapsed();
 
 		float clever_time = tridiagTime+cuspHintTime;
-		float speedup = cuspZeroTime/clever_time;
+		float clever_speedup = cuspZeroTime/clever_time;
+		float fast_speedup = cuspZeroTime/cuspFastTime;
 		int clever_iterations = cleverMonitor.iteration_count();
 		int bench_iterations = zeroMonitor.iteration_count();
 		int fast_iterations = fastMonitor.iteration_count();
@@ -484,7 +485,7 @@ int main(int argc, char *argv[])
 		total_fast_savings += (bench_iterations-fast_iterations);
 
 		if(i<0){
-			printf("Speedup %.2f\n",speedup);
+			printf("clever_speedup %.2f\n",clever_speedup);
 			printf("Clever Time %.2f %d (%.2f + %.2f)\n", clever_time, clever_iterations, tridiagTime, cuspHintTime);
 			printf("Fast   Time %.2f %d (%.2f + %.2f)\n", cuspFastTime, fast_iterations, fastXTimer.Elapsed(), cuspFastTimer.Elapsed());
 			printf("Bench  Time %.2f %d \n", cuspZeroTime, bench_iterations);	
@@ -494,7 +495,7 @@ int main(int argc, char *argv[])
 
 		// Capturing headers
 		if(i==0){
-			solver_file << "#timestep,speedup,clever_time,fast_time,zero_time,clever_iter,fast_iter,zero_iter,clever_sav,fast_sav,tridiagTime,cuspHintTime,channel%%,current%%,solver%%" << endl;
+			solver_file << "#timestep,clever_speedup,fast_speedup,clever_time,fast_time,zero_time,clever_iter,fast_iter,zero_iter,clever_sav,fast_sav,tridiagTime,cuspHintTime,channel%%,current%%,solver%%" << endl;
 			V_file << "timestep" << ","; Maindiag_file << "timestep" << ","; B_file << "timestep" << ",";
 			for(int j=0;j<num_comp;j++){
 				V_file << j << ","; Maindiag_file << j << ","; B_file << j << ",";
@@ -504,7 +505,7 @@ int main(int argc, char *argv[])
 
 		// Capturing data in files.
 		solver_file << i*dT << "," <<  
-					speedup << "," << 
+					clever_speedup << "," << fast_speedup << "," <<
 					clever_time << "," << cuspFastTime << "," << cuspZeroTime << "," << 
 					clever_iterations << "," << fast_iterations << "," << bench_iterations << "," 
 					<< (bench_iterations-clever_iterations) << "," << (bench_iterations-fast_iterations) << ","
