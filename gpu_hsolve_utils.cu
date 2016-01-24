@@ -25,29 +25,9 @@ using namespace std;
 
 double I_EXT = 10;
 
-int CHANNEL_TYPE_NA = 0;
-int CHANNEL_TYPE_K = 1;
-int CHANNEL_TYPE_CL = 2;
-
 int MAX_CHAN_PER_COMP = 12;
 
-double gbar_Na = 0.026;
-double gbar_K = 0.070;
-double gbar_L = 0.1;
 
-double E_RESTING_POTENTIAL = -70;
-double E_NA = 52.4;
-double E_K = -72.1;
-double E_CL = -57.2;
-
-/* 
-// Populating method using in MOOSE
-tree[ i ].Ra = 15.0 + 3.0 * i;
-tree[ i ].Rm = 45.0 + 15.0 * i;
-tree[ i ].Cm = 500.0 + 200.0 * i * i;
-Em.push_back( -0.06 );
-V.push_back( -0.06 + 0.01 * i );
-*/
 __global__
 void compute_fast_x(int threadCount, int num_comp, double* d_tridiag_data, 
 			double* d_b, 
@@ -93,7 +73,11 @@ void calculate_currents(int threadCount, double* d_V, double* d_Cm, double dT,
 
 	if(tid < threadCount){
 		// printf("%lf %lf %lf %lf \n", (d_V[tid]*d_Cm[tid])/dT, d_Em[tid]/d_Rm[tid], d_GkEkSum[tid], externalCurrent);
-		d_b[tid] = (d_V[tid]*d_Cm[tid])/dT + d_Em[tid]/d_Rm[tid] + d_GkEkSum[tid] + externalCurrent;
+		if(tid == 0)
+			d_b[tid] = (d_V[tid]*d_Cm[tid])/dT + d_Em[tid]/d_Rm[tid] + d_GkEkSum[tid] + externalCurrent;
+		else
+			d_b[tid] = (d_V[tid]*d_Cm[tid])/dT + d_Em[tid]/d_Rm[tid] + d_GkEkSum[tid];
+
 	}
 
 }
@@ -116,15 +100,15 @@ void calculate_gk_gkek_sum(int threadCount, double* d_V,
 
 		temp = 120.0 * pow(d_gate_m[tid],3) * d_gate_h[tid] * d_channel_counts[3*tid];
 		gksum += temp;
-		gkeksum += temp*(115);
+		gkeksum += temp*(50);
 
 		temp = 36.0 * pow(d_gate_n[tid],4) * d_channel_counts[3*tid+1];
 		gksum += temp;
-		gkeksum += temp*(-12);
+		gkeksum += temp*(-77);
 
 		temp = 0.3* d_channel_counts[3*tid+2];
 		gksum += temp;
-		gkeksum += temp*(10.6);
+		gkeksum += temp*(-54.4);
 
 		d_GkSum[tid] = gksum;
 		d_GkEkSum[tid] = gkeksum;
@@ -139,11 +123,13 @@ void advance_channel_m(int threadCount, double* vm, double* m, double dt){
 	if(tid < threadCount){
 		double potential = vm[tid];
 
-		double alpha_m = (0.1 * (25-potential)) / (exp((25-potential)*0.1) - 1);
-		double beta_m = 4 * exp(-1*potential/18);
+		double alpha_m = (0.1 * (potential+40)) / (1-exp(-1*(40+potential)/10));
+		double beta_m = 4 * exp(-1*(potential+65)/18);
 
-		m[tid] = alpha_m * dt + m[tid] * ( 1 - (alpha_m + beta_m)*dt);
+		double c = 1 + ((alpha_m+beta_m)*dt/2);
+		m[tid] = (alpha_m*dt + m[tid]*(2-c))/c;
 
+		//m[tid] =  alpha_m * dt + m[tid] * ( 1 - (alpha_m + beta_m)*dt);
 		//printf("%lf %lf %lf %lf\n", potential, alpha_m, beta_m, m[tid]);
 	}
 }
@@ -156,11 +142,13 @@ void advance_channel_n(int threadCount, double* vm, double* n, double dt){
 	if(tid < threadCount){
 		double potential = vm[tid];
 
-		double alpha_n = (0.01 * (10-potential)) / (exp((10-potential)*0.1) - 1);
-		double beta_n = 0.125 * exp(-1*potential/80);
+		double alpha_n = (0.01 * (potential+55)) / (1-exp(-1*(potential+55)/10));
+		double beta_n = 0.125 * exp(-1*(potential+65)/80);
 
-		n[tid] = alpha_n * dt + n[tid] * ( 1 - (alpha_n + beta_n)*dt);
+		double c = 1 + ((alpha_n+beta_n)*dt/2);
+		n[tid] = (alpha_n*dt + n[tid]*(2-c))/c;
 
+		//n[tid] = alpha_n * dt + n[tid] * ( 1 - (alpha_n + beta_n)*dt);
 		//printf("%lf %lf %lf %lf\n", potential, alpha_n, beta_n, n[tid]);
 	}
 }
@@ -173,11 +161,13 @@ void advance_channel_h(int threadCount, double* vm, double* h, double dt){
 
 		double potential = vm[tid];
 
-		double alpha_h = 0.07 * exp(-1*potential/20);
-		double beta_h = 1 / (exp((30-potential)*0.1) + 1);
+		double alpha_h = 0.07 * exp(-1*(potential+65)/20);
+		double beta_h = 1 / (exp(-1*(potential+35)/10) + 1);
 
-		h[tid] = alpha_h * dt + h[tid] * ( 1 - (alpha_h + beta_h)*dt);
+		double c = 1 + ((alpha_h+beta_h)*dt/2);
+		h[tid] = (alpha_h*dt + h[tid]*(2-c))/c;
 
+		//h[tid] = alpha_h * dt + h[tid] * ( 1 - (alpha_h + beta_h)*dt);
 		//printf("%lf %lf %lf %lf\n", potential, alpha_h, beta_h, h[tid]);
 	}
 }
@@ -506,8 +496,8 @@ void generate_random_neuron(int num_comp, int num_mutations, vector<vector<int> 
 
 void populate_V(double* h_V, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		//h_V[i] = E_RESTING_POTENTIAL;
-		h_V[i] = 0;
+		h_V[i] = -65;
+		//h_V[i] = 0;
 }
 
 void populate_Cm(double* h_Cm, int num_comp){
@@ -531,19 +521,20 @@ void populate_Rm(double* h_Rm, int num_comp){
 
 void populate_Em(double* h_Em, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		//h_Em[i] = E_RESTING_POTENTIAL;
-		h_Em[i] = 0;
+		h_Em[i] = -65;
+		//h_Em[i] = 0;
 }
 
 
 void initialize_gates(int num_comp, double* h_gate_m, double* h_gate_n, double* h_gate_h){
-	double V= 0 ; 
-	double alpha_n = .01 * ( (10-V) / (exp((10-V)/10)-1) ); 
-	double beta_n = .125*exp(-V/80); 
-	double alpha_m = .1*( (25-V) / (exp((25-V)/10)-1) ); 
-	double beta_m = 4*exp(-V/18); 
-	double alpha_h = .07*exp(-V/20); 
-	double beta_h = 1/(exp((30-V)/10)+1); 
+	double V= -65 ; 
+
+	double alpha_m = .1*( (V+40) / (1-exp(-1*(V+40)/10)) ); 
+	double beta_m = 4*exp(-(V+65)/18); 
+	double alpha_n = .01 * ( (V+55) / (1-exp(-1*(V+55)/10)) ); 
+	double beta_n = .125*exp(-(V+65)/80); 
+	double alpha_h = .07*exp(-(V+65)/20); 
+	double beta_h = 1/(exp(-1*(V+35)/10)+1); 
 
 	double init_m = alpha_m/(alpha_m+beta_m);
 	double init_n = alpha_n/(alpha_n+beta_n);

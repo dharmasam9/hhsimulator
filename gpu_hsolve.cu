@@ -123,8 +123,10 @@ int main(int argc, char *argv[])
 	initialize_gates(num_comp, h_gate_m, h_gate_n, h_gate_h);
 
 	// Full current through out.
-	for (int i = 0; i < time_steps; ++i){
-		h_current_inj[i] = I_EXT;
+	
+	for (int i = 0; i < time_steps / 10; ++i){
+		h_current_inj[(time_steps*2)/10 + i] = I_EXT;
+		//h_current_inj[(time_steps*6)/10 + i] = I_EXT;
 		//h_current_inj[i] = 0;		
 	}
 
@@ -168,9 +170,9 @@ int main(int argc, char *argv[])
 			}
 		}else{
 			// 60-30-10 proportions of Na,K,Cl
-			na_count = 3;
-			k_count = 3;
-			cl_count = 3;
+			na_count = 2;
+			k_count = 1;
+			cl_count = 1;
 		}
 		
 		/*
@@ -495,10 +497,10 @@ int main(int argc, char *argv[])
 
 		// Capturing headers
 		if(i==0){
-			solver_file << "#timestep,clever_speedup,fast_speedup,clever_time,fast_time,zero_time,clever_iter,fast_iter,zero_iter,clever_sav,fast_sav,tridiagTime,cuspHintTime,channel%%,current%%,solver%%" << endl;
+			solver_file << "#timestep,clever_speedup,fast_speedup,clever_time,fast_time,zero_time,clever_iter,fast_iter,zero_iter,clever_sav,fast_sav,tridiagTime,cuspHintTime,clever_iter_perc_savings,fast_iter_perc_savings,channel%%,current%%,solver%%" << endl;
 			V_file << "timestep" << ","; Maindiag_file << "timestep" << ","; B_file << "timestep" << ",";
 			for(int j=0;j<num_comp;j++){
-				V_file << j << ","; Maindiag_file << j << ","; B_file << j << ",";
+				V_file << "comp_" << j << ","; Maindiag_file << "maindiag_" << j << ","; B_file << "bvalue_" << j << ",";
 			}
 			V_file << endl; Maindiag_file << endl; B_file << endl;
 		}
@@ -509,23 +511,29 @@ int main(int argc, char *argv[])
 					clever_time << "," << cuspFastTime << "," << cuspZeroTime << "," << 
 					clever_iterations << "," << fast_iterations << "," << bench_iterations << "," 
 					<< (bench_iterations-clever_iterations) << "," << (bench_iterations-fast_iterations) << ","
-					<< tridiagTime << "," << cuspHintTime << "," 
+					<< tridiagTime << "," << cuspHintTime << ","
+					<< ((bench_iterations-clever_iterations)*100.0)/bench_iterations << "," << ((bench_iterations-fast_iterations)*100.0)/bench_iterations << ","
 					<< channelPerc << "," << currentPerc << "," << solverPerc <<  endl;
 
-		V_file << i*dT << ",";
-		Maindiag_file << i*dT << ",";
-		B_file << i*dT << ",";
 
-		for (int j = 0; j < num_comp; ++j)
-		{
-			V_file << h_Vplot[j] << ",";
-			Maindiag_file << h_tridiag_data[num_comp+j] << ",";
-			B_file << h_b_cusp_copy3[j] << ",";
-			if(j==num_comp-1){
-				V_file << endl;
-				Maindiag_file << endl;
-				B_file << endl;
-			}
+		// As this data is used only to generate plots
+		// we will print it every 10 iterations
+		if(i%5 == 0){
+			V_file << i*dT << ",";
+			Maindiag_file << i*dT << ",";
+			B_file << i*dT << ",";
+
+			for (int j = 0; j < num_comp; ++j)
+			{
+				V_file << h_Vplot[j] << ",";
+				Maindiag_file << h_tridiag_data[num_comp+j] << ",";
+				B_file << h_b_cusp_copy3[j] << ",";
+				if(j==num_comp-1){
+					V_file << endl;
+					Maindiag_file << endl;
+					B_file << endl;
+				}
+			}	
 		}
 
 	}
