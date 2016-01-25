@@ -6,9 +6,9 @@ set output 'matrix_state.png'
 
 set size 1,1
 set multiplot
-unset key
+#unset key
 
-col_end = 20
+col_end = 100
 
 set xlabel 'time(ms)'
 
@@ -24,10 +24,18 @@ set ylabel 'Main Diag'
 plot for [i=2:col_end] 'file_main_diag.csv' using 1:i with lines notitle
 
 # third
-set size 1,0.5
 set origin 0,0
+set size 1,0.5
 set ylabel 'B'
 plot for [i=2:col_end] 'file_b_vector.csv' using 1:i with lines notitle
+
+# fourth
+#set origin 0.5,0
+#set y2tics
+#set y2range[0:10]
+#plot 'file_voltage.csv' using 1:2 title 'voltage' with lines,\
+#	 'file_solver.csv' using 1:7 title 'Clever Itrtns' with lines axes x1y2,\
+#	 'file_solver.csv' using 1:9 title 'Zero Itrnts' with lines axes x1y2
 
 unset multiplot
 

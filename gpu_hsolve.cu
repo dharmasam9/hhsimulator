@@ -104,8 +104,9 @@ int main(int argc, char *argv[])
 
 	// Giving current at 20% time for 10%
 	double I_EXT = atof(config["I_EXT"].c_str());
-	for (int i = 0; i < time_steps / 10; ++i){
-		h_current_inj[(time_steps*2)/10 + i] = I_EXT;
+	for (int i = 0; i < time_steps; ++i){
+		h_current_inj[i] = I_EXT;
+		//h_current_inj[(time_steps*2)/10 + i] = I_EXT;
 		//h_current_inj[(time_steps*6)/10 + i] = I_EXT;
 		//h_current_inj[i] = 0;		
 	}
