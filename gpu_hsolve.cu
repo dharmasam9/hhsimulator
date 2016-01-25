@@ -7,16 +7,35 @@ using namespace std;
 int main(int argc, char *argv[])
 {
 
-	bool ANALYSIS = true;
-	bool DEBUG = false;
-	bool FROM_FILE = false;
+	map<string,string> config;
+
+	// Read the constants from configuation file
+	read_configuration("config", config);
+
+	int ANALYSIS, DEBUG, FROM_FILE;
+	int iteration_limit;
+	float relative_tolerance;
+
+	double simulation_time, dT;
+	int skip_stride;
+	int max_chan_per_comp;
+
+	// Populating config data
+	ANALYSIS = atoi(config["ANALYSIS"].c_str());
+	DEBUG = atoi(config["DEBUG"].c_str());
+
+	// set stopping criteria:
+	iteration_limit    = atoi(config["ITERATION_LIMIT"].c_str());
+	relative_tolerance = atof(config["RELATIVE_TOLERANCE"].c_str());
+
+	simulation_time = atof(config["SIMULATION_TIME"].c_str());
+	dT = atof(config["DT"].c_str());
+	skip_stride = atoi(config["SKIP_STRIDE"].c_str());
+	max_chan_per_comp = atoi(config["MAX_CHAN_PER_COMP"].c_str());
+
 
 	int tridiag_nnz = 0;
 	int offdiag_nnz = 0;
-
-	// set stopping criteria:
-	int  iteration_limit    = 50;
-	float  relative_tolerance = 1e-6;
 
 	// cusparse handle
 	cusparseHandle_t cusparse_handle = 0;
@@ -26,7 +45,6 @@ int main(int argc, char *argv[])
 	srand (time(NULL));
 
 	// Required arrays
-	double simulation_time = 0.03, dT = 0.01;
 	int time_steps = 0;
 
 	vector<vector<int> > junction_list;
@@ -37,7 +55,6 @@ int main(int argc, char *argv[])
 	double* h_V,*h_Cm, *h_Ga, *h_Rm, *h_Em;
 	double* h_gate_m,*h_gate_h,*h_gate_n;
 	double* h_current_inj;
-	int skip_stride = 1;
 
 	// If from file read the structure or generate structure
 	if(argc > 1)
@@ -46,25 +63,6 @@ int main(int argc, char *argv[])
 	// Setting number of components
 	if(FROM_FILE){
 		num_comp = get_rows_from_file(argv[2]);
-
-		if(argc > 3)
-			simulation_time = atof(argv[3]);
-
-		if(argc > 4)
-			dT = atof(argv[4]);
-
-		if(argc > 5)
-			skip_stride = atoi(argv[5]);
-
-		if(argc > 6)
-			DEBUG = atoi(argv[6]);
-
-		if(argc > 7)
-			iteration_limit = atoi(argv[7]);
-
-		if(argc > 8)
-			relative_tolerance = pow(10,-1*atoi(argv[8]));
-
 
 		junction_list.resize(num_comp);
 		get_structure_from_neuron(argv[2], num_comp, junction_list);
@@ -78,24 +76,6 @@ int main(int argc, char *argv[])
 
 		if(argc > 3)
 			num_mutations = (atof(argv[3])*(num_comp-2))/100; // Branching percentage
-
-		if(argc > 4)
-			simulation_time = atof(argv[4]);
-
-		if(argc > 5)
-			dT = atof(argv[5]);
-
-		if(argc > 6)
-			skip_stride = atoi(argv[6]);
-
-		if(argc > 7)
-			DEBUG = atoi(argv[7]);
-
-		if(argc > 8)
-			iteration_limit = atoi(argv[8]);
-
-		if(argc > 9)
-			relative_tolerance = pow(10,-1*atoi(argv[9]));
 
 		junction_list.resize(num_comp);
 		generate_random_neuron(num_comp, num_mutations, junction_list);
@@ -150,7 +130,7 @@ int main(int argc, char *argv[])
 		bool fill_random = false;
 		
 		if(fill_random){
-			num_channels = max(3,rand()%MAX_CHAN_PER_COMP);
+			num_channels = max(3,rand()%max_chan_per_comp);
 			// Making sure compartment has atleast one Na,K,Cl channel
 			na_count = 1; k_count = 1; cl_count = 1;
 			for (int j = 0; j < num_channels-3; ++j)
@@ -170,9 +150,9 @@ int main(int argc, char *argv[])
 			}
 		}else{
 			// 60-30-10 proportions of Na,K,Cl
-			na_count = 2;
-			k_count = 1;
-			cl_count = 1;
+			na_count = atoi(config["NA_CHAN_COUNT"].c_str()); 
+			k_count = atoi(config["K_CHAN_COUNT"].c_str());
+			cl_count = atoi(config["CL_CHAN_COUNT"].c_str());
 		}
 		
 		/*
@@ -186,11 +166,11 @@ int main(int argc, char *argv[])
 	}
 
 
-	populate_V(h_V, num_comp);
-	populate_Cm(h_Cm, num_comp);
-	populate_Ga(h_Ga, num_comp);
-	populate_Rm(h_Rm, num_comp);
-	populate_Em(h_Em, num_comp);
+	populate_V(h_V, num_comp, atof(config["RESTING_POTENTIAL"].c_str()));
+	populate_Cm(h_Cm, num_comp, atof(config["CM"].c_str()));
+	populate_Ga(h_Ga, num_comp, atof(config["RA"].c_str()));
+	populate_Rm(h_Rm, num_comp, atof(config["RM"].c_str()));
+	populate_Em(h_Em, num_comp, atof(config["EM"].c_str()));
 
 	// ****************************** SetUp Matrix ************************************
 	

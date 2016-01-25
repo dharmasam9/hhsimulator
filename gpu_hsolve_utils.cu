@@ -11,6 +11,7 @@
 #include <sstream>
 #include <fstream>
 #include <string>
+#include <map>
 #include <time.h>
 
 #include "gpu_timer.h"
@@ -24,8 +25,6 @@
 using namespace std;
 
 double I_EXT = 0.1;
-
-int MAX_CHAN_PER_COMP = 12;
 
 
 __global__
@@ -501,36 +500,33 @@ void generate_random_neuron(int num_comp, int num_mutations, vector<vector<int> 
 }
 
 
-void populate_V(double* h_V, int num_comp){
+void populate_V(double* h_V, int num_comp, double value){
 	for (int i = 0; i < num_comp; ++i)
-		h_V[i] = -65;
-		//h_V[i] = 0;
+		h_V[i] = value;
 }
 
-void populate_Cm(double* h_Cm, int num_comp){
+void populate_Cm(double* h_Cm, int num_comp, double value){
 	for (int i = 0; i < num_comp; ++i)
-		h_Cm[i] = 1;
+		h_Cm[i] = value;
 		//h_Cm[i] = rand()%10 + 2.0;
 
 }
 
-void populate_Ga(double* h_Ga, int num_comp){
-	double Ra = 0.03;
+void populate_Ga(double* h_Ga, int num_comp, double value){
 	for (int i = 0; i < num_comp; ++i)
-		h_Ga[i] = 5;
-		//h_Ga[i] = 2.0/Ra;
+		h_Ga[i] = 1.0/value;
 		//h_Ga[i] = rand()%10 + 2.0;
 }
 
-void populate_Rm(double* h_Rm, int num_comp){
+void populate_Rm(double* h_Rm, int num_comp, double value){
 	for (int i = 0; i < num_comp; ++i)
-		h_Rm[i] = 5;
+		h_Rm[i] = value;
 		//h_Rm[i] = rand()%10 + 2.0;
 }
 
-void populate_Em(double* h_Em, int num_comp){
+void populate_Em(double* h_Em, int num_comp, double value){
 	for (int i = 0; i < num_comp; ++i)
-		h_Em[i] = -65 + 10;
+		h_Em[i] = value;
 		//h_Em[i] = 0;
 }
 
@@ -556,5 +552,28 @@ void initialize_gates(int num_comp, double* h_gate_m, double* h_gate_n, double* 
 		h_gate_m[i] = init_m;
 		h_gate_n[i] = init_n;
 		h_gate_h[i] = init_h;
+	}
+}
+
+/*
+	Reads values from a config file
+*/
+void read_configuration(string filename, map<string,string> &config){
+	ifstream configFile;
+	configFile.open("config");
+
+	string line;
+	string key,value;
+	while(getline(configFile,line)){
+		for (int i = 0; i < line.size(); ++i)
+		{
+			if(line[i] == '='){
+				key = line.substr(0,i);
+				value = line.substr(i+1,line.size()-i-1);
+
+				config[key] = value;
+				i = line.size(); // exiting
+			}
+		}
 	}
 }
