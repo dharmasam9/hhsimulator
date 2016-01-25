@@ -23,7 +23,7 @@
 
 using namespace std;
 
-double I_EXT = 10;
+double I_EXT = 0.1;
 
 int MAX_CHAN_PER_COMP = 12;
 
@@ -248,8 +248,20 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 								double* h_Cm, double* h_Ga, double* h_Rm, double dT,
 								int &tridiag_nnz, int &offdiag_nnz){
 
-
 	int DEBUG = 0;
+
+	// Printing junction data
+	if(DEBUG){
+		for (int i = 0; i < junction_list.size(); ++i)
+		{
+			cout << i << " -> ";
+			for (int j = 0; j < junction_list[i].size(); ++j)
+			{
+				cout << junction_list[i][j] << ",";
+			}
+			cout << endl;
+		}
+	}
 
 	tridiag_nnz = 0;
 	offdiag_nnz = 0;
@@ -257,6 +269,8 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 	// Membrance resitance and capacitance terms.
 	for (int i = 0; i < num_comp; ++i)
 		h_maindiag_passive[i] += (h_Cm[i]/dT + 1.0/h_Rm[i]);
+		//h_maindiag_passive[i] = 0;
+		
 
 
 	// Non zero elements in csr format.
@@ -302,16 +316,15 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 			for (int k = 0; k < junction_list[i].size(); ++k)
 				junction_sum += h_Ga[junction_list[i][k]];
 
-			// Inducing passive effect to main diagonal
-			node1 = junction_list[i][0];
-			h_maindiag_passive[node1] += h_Ga[node1]*(1.0 - h_Ga[node1]/junction_sum);
-
 			//cout << node1 << " " << h_maindiag_passive[node1] << " " << endl;
 
 			// Putting admittance in off diagonal elements.
 			for (int j = 0; j < junction_list[i].size(); ++j)
 			{	
 				node1 = junction_list[i][j];
+
+				// Inducing passive effect to main diagonal elements
+				h_maindiag_passive[node1] += h_Ga[node1]*(1.0 - h_Ga[node1]/junction_sum);
 				
 				for (int k = j+1; k < junction_list[i].size(); ++k)
 				{
@@ -320,11 +333,6 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 					gi = h_Ga[node1];
 					gj = h_Ga[node2];
 					gij = (gi*gj)/junction_sum;
-
-					// Putting admittance to children
-					if(k == j+1){
-						h_maindiag_passive[node2] += gij;
-					}
 
 					//cout << junction_sum << " " << gi[node1] << " " << gi[node2] << " " << admittance << endl;
 
@@ -336,7 +344,6 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 						tridiag_nnz += 2;
 					else
 						offdiag_nnz += 2;
-
 				}
 			}
 
@@ -508,8 +515,10 @@ void populate_Cm(double* h_Cm, int num_comp){
 }
 
 void populate_Ga(double* h_Ga, int num_comp){
+	double Ra = 0.03;
 	for (int i = 0; i < num_comp; ++i)
-		h_Ga[i] = 7.0;
+		h_Ga[i] = 5;
+		//h_Ga[i] = 2.0/Ra;
 		//h_Ga[i] = rand()%10 + 2.0;
 }
 
@@ -521,7 +530,7 @@ void populate_Rm(double* h_Rm, int num_comp){
 
 void populate_Em(double* h_Em, int num_comp){
 	for (int i = 0; i < num_comp; ++i)
-		h_Em[i] = -65;
+		h_Em[i] = -65 + 10;
 		//h_Em[i] = 0;
 }
 

@@ -212,6 +212,7 @@ int main(int argc, char *argv[])
 								h_maindiag_passive, h_tridiag_data, h_maindiag_map,
 								h_Cm, h_Ga, h_Rm, dT,
 								tridiag_nnz, offdiag_nnz);
+
 	// **************************** Device memory Allocation ****************************
 	double* d_V,*d_Cm, *d_Rm, *d_Em;
 	double* d_gate_m,*d_gate_h,*d_gate_n;
