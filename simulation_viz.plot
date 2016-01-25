@@ -1,8 +1,12 @@
+reset
+
 set datafile separator ","
 set terminal png
+set output 'simulation_viz_savediters.png'
 
 set y2tics
 set y2range[0:10]
+unset key
 
 plot 'file_voltage.csv' using 1:2 title 'voltage' with lines,\
 	 'file_solver.csv' using 1:7 title 'Clever Itrtns' with lines axes x1y2,\
@@ -12,10 +16,6 @@ plot 'file_voltage.csv' using 1:2 title 'voltage' with lines,\
 	 #'file_solver.csv' using 1:11 title 'Fast savings' with lines axes x1y2,\
 	 #'file_solver.csv' using 1:2 title 'Clever Speedup' with lines axes x1y2,\
 	 #'file_solver.csv' using 1:3 title 'Fast Speedup' with lines axes x1y2,\
-	 
-
-set output 'simulation_viz_savediters.png'
-replot
 
 
 #plot 'file_voltage.csv' using 1:2 title 'voltage' with lines,\

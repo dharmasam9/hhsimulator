@@ -102,14 +102,13 @@ int main(int argc, char *argv[])
 	// Initializing m,h,h
 	initialize_gates(num_comp, h_gate_m, h_gate_n, h_gate_h);
 
-	// Full current through out.
-	
+	// Giving current at 20% time for 10%
+	double I_EXT = atof(config["I_EXT"].c_str());
 	for (int i = 0; i < time_steps / 10; ++i){
 		h_current_inj[(time_steps*2)/10 + i] = I_EXT;
 		//h_current_inj[(time_steps*6)/10 + i] = I_EXT;
 		//h_current_inj[i] = 0;		
 	}
-
 
 
 	/* Managing current

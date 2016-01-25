@@ -29,11 +29,7 @@ set origin 0,0
 set ylabel 'B'
 plot for [i=2:col_end] 'file_b_vector.csv' using 1:i with lines notitle
 
-
-
 unset multiplot
-
-
 
 
 # set datafile separator ","

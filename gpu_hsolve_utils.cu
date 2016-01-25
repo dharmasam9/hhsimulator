@@ -24,8 +24,6 @@
 
 using namespace std;
 
-double I_EXT = 0.1;
-
 
 __global__
 void compute_fast_x(int threadCount, int num_comp, double* d_tridiag_data, 
@@ -99,15 +97,15 @@ void calculate_gk_gkek_sum(int threadCount, double* d_V,
 
 		temp = 120.0 * pow(d_gate_m[tid],3) * d_gate_h[tid] * d_channel_counts[3*tid];
 		gksum += temp;
-		gkeksum += temp*(50);
+		gkeksum += temp*(115);
 
 		temp = 36.0 * pow(d_gate_n[tid],4) * d_channel_counts[3*tid+1];
 		gksum += temp;
-		gkeksum += temp*(-77);
+		gkeksum += temp*(-12);
 
 		temp = 0.3* d_channel_counts[3*tid+2];
 		gksum += temp;
-		gkeksum += temp*(-54.4);
+		gkeksum += temp*(10.6);
 
 		d_GkSum[tid] = gksum;
 		d_GkEkSum[tid] = gkeksum;
@@ -122,8 +120,11 @@ void advance_channel_m(int threadCount, double* vm, double* m, double dt){
 	if(tid < threadCount){
 		double potential = vm[tid];
 
-		double alpha_m = (0.1 * (potential+40)) / (1-exp(-1*(40+potential)/10));
-		double beta_m = 4 * exp(-1*(potential+65)/18);
+		//double alpha_m = (0.1 * (potential+40)) / (1-exp(-1*(40+potential)/10));
+		//double beta_m = 4 * exp(-1*(potential+65)/18);
+
+		double alpha_m = (0.1 * (25-potential)) / (exp((25-potential)*0.1) - 1);
+		double beta_m = 4 * exp(-1*potential/18);
 
 		double c = 1 + ((alpha_m+beta_m)*dt/2);
 		m[tid] = (alpha_m*dt + m[tid]*(2-c))/c;
@@ -141,8 +142,11 @@ void advance_channel_n(int threadCount, double* vm, double* n, double dt){
 	if(tid < threadCount){
 		double potential = vm[tid];
 
-		double alpha_n = (0.01 * (potential+55)) / (1-exp(-1*(potential+55)/10));
-		double beta_n = 0.125 * exp(-1*(potential+65)/80);
+		//double alpha_n = (0.01 * (potential+55)) / (1-exp(-1*(potential+55)/10));
+		//double beta_n = 0.125 * exp(-1*(potential+65)/80);
+
+		double alpha_n = (0.01 * (10-potential)) / (exp((10-potential)*0.1) - 1);
+		double beta_n = 0.125 * exp(-1*potential/80);
 
 		double c = 1 + ((alpha_n+beta_n)*dt/2);
 		n[tid] = (alpha_n*dt + n[tid]*(2-c))/c;
@@ -160,8 +164,11 @@ void advance_channel_h(int threadCount, double* vm, double* h, double dt){
 
 		double potential = vm[tid];
 
-		double alpha_h = 0.07 * exp(-1*(potential+65)/20);
-		double beta_h = 1 / (exp(-1*(potential+35)/10) + 1);
+		//double alpha_h = 0.07 * exp(-1*(potential+65)/20);
+		//double beta_h = 1 / (exp(-1*(potential+35)/10) + 1);
+
+		double alpha_h = 0.07 * exp(-1*potential/20);
+		double beta_h = 1 / (exp((30-potential)*0.1) + 1);
 
 		double c = 1 + ((alpha_h+beta_h)*dt/2);
 		h[tid] = (alpha_h*dt + h[tid]*(2-c))/c;
