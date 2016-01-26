@@ -8,7 +8,8 @@ set size 1,1
 set multiplot
 #unset key
 
-col_end = 452
+col_end = 4636
+stride = 20
 
 set xlabel 'time(ms)'
 
@@ -16,18 +17,18 @@ set xlabel 'time(ms)'
 set size 0.5,0.5
 set origin  0,0.5
 set ylabel 'voltage'
-plot for [i=2:col_end] 'file_voltage.csv' using 1:i with lines notitle
+plot for [i=2:col_end:stride] 'file_voltage.csv' using 1:i with lines notitle
 
 # second
 set origin 0.5,0.5
 set ylabel 'Main Diag'
-plot for [i=2:col_end] 'file_main_diag.csv' using 1:i with lines notitle
+plot for [i=2:col_end:stride] 'file_main_diag.csv' using 1:i with lines notitle
 
 # third
 set origin 0,0
 set size 1,0.5
 set ylabel 'B'
-plot for [i=2:col_end] 'file_b_vector.csv' using 1:i with lines notitle
+plot for [i=2:col_end:stride] 'file_b_vector.csv' using 1:i with lines notitle
 
 # fourth
 #set origin 0.5,0
