@@ -8,7 +8,7 @@ set size 1,1
 set multiplot
 #unset key
 
-col_end = 100
+col_end = 452
 
 set xlabel 'time(ms)'
 

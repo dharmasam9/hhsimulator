@@ -286,7 +286,7 @@ int main(int argc, char *argv[])
 
 	double offdiag_perc = (offdiag_nnz*100.0)/h_A_cusp.num_entries;
 	double tridiag_occupancy = (tridiag_nnz * 100.0)/ (3*h_A_cusp.num_rows);
-	solver_file << h_A_cusp.num_rows << " " << h_A_cusp.num_entries << " " << tridiag_nnz << " " << offdiag_nnz << " " << offdiag_perc << " " << tridiag_occupancy << endl;
+	solver_file << "#" << h_A_cusp.num_rows << " " << h_A_cusp.num_entries << " " << tridiag_nnz << " " << offdiag_nnz << " " << offdiag_perc << " " << tridiag_occupancy << endl;
 
 
 	double h_Vplot[num_comp];
@@ -432,14 +432,6 @@ int main(int argc, char *argv[])
 
 		// ***************************************
 
-		// Transfer V to cpu for plotting
-		cudaMemcpy(h_Vplot, d_V, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
-		cudaMemcpy(h_Mplot, d_gate_m, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
-		cudaMemcpy(h_Hplot, d_gate_h, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
-		cudaMemcpy(h_Nplot, d_gate_n, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
-
-		cudaMemcpy(h_tridiag_data, d_tridiag_data, sizeof(double)*(3*num_comp), cudaMemcpyDeviceToHost);
-
 		//cout << h_tridiag_data[i] << " " << h_tridiag_data[num_comp+i] << " " << h_tridiag_data[2*num_comp+i] << endl;
 		
 		// Timings
@@ -499,7 +491,18 @@ int main(int argc, char *argv[])
 
 		// As this data is used only to generate plots
 		// we will print it every 10 iterations
-		if(i%5 == 0){
+		int DATA_RESOLUTION = atoi(config["DATA_RESOLUTION"].c_str());
+		if(i%DATA_RESOLUTION == 0){
+
+			// Transfer V to cpu for plotting
+			cudaMemcpy(h_Vplot, d_V, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
+			cudaMemcpy(h_tridiag_data, d_tridiag_data, sizeof(double)*(3*num_comp), cudaMemcpyDeviceToHost);
+			//cudaMemcpy(h_Mplot, d_gate_m, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
+			//cudaMemcpy(h_Hplot, d_gate_h, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
+			//cudaMemcpy(h_Nplot, d_gate_n, num_comp* sizeof(double), cudaMemcpyDeviceToHost);
+			
+
+
 			V_file << i*dT << ",";
 			Maindiag_file << i*dT << ",";
 			B_file << i*dT << ",";
