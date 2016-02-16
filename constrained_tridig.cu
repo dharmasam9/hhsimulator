@@ -1,3 +1,7 @@
+/*
+	Generates a random neuron structure and tests optimizations.
+*/
+
 #include <cuda_runtime.h>
 #include <cusparse_v2.h>
 
