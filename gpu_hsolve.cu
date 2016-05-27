@@ -12,7 +12,7 @@ int main(int argc, char *argv[])
 	// Read the constants from configuation file
 	read_configuration("config", config);
 
-	int ANALYSIS, DEBUG, FROM_FILE;
+	int ANALYSIS, DEBUG, FROM_FILE, IS_PERVASIVE_MATRIX;
 	int iteration_limit;
 	float relative_tolerance;
 
@@ -32,6 +32,7 @@ int main(int argc, char *argv[])
 	dT = atof(config["DT"].c_str());
 	skip_stride = atoi(config["SKIP_STRIDE"].c_str());
 	max_chan_per_comp = atoi(config["MAX_CHAN_PER_COMP"].c_str());
+	IS_PERVASIVE_MATRIX = atoi(config["IS_PERVASIVE_MATRIX"].c_str());
 
 
 	int tridiag_nnz = 0;
@@ -191,7 +192,7 @@ int main(int argc, char *argv[])
 								h_A_cusp, h_b,
 								h_maindiag_passive, h_tridiag_data, h_maindiag_map,
 								h_Cm, h_Ga, h_Rm, dT,
-								tridiag_nnz, offdiag_nnz);
+								tridiag_nnz, offdiag_nnz, IS_PERVASIVE_MATRIX);
 
 	// **************************** Device memory Allocation ****************************
 	double* d_V,*d_Cm, *d_Rm, *d_Em;

@@ -252,7 +252,7 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 								cusp::csr_matrix<int, double, cusp::host_memory> &h_A_cusp, double* h_b,
 								double* h_maindiag_passive, double* h_tridiag_data, int* h_maindiag_map,
 								double* h_Cm, double* h_Ga, double* h_Rm, double dT,
-								int &tridiag_nnz, int &offdiag_nnz){
+								int &tridiag_nnz, int &offdiag_nnz, int IS_PERVASIVE_MATRIX){
 
 	int DEBUG = 0;
 
@@ -311,6 +311,7 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 		}
 	}	
 
+
 	// Generating symmetrix admittance graph
 	// using junction information.
 	for (int i = 0; i < num_comp; ++i)
@@ -324,23 +325,47 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 
 			//cout << node1 << " " << h_maindiag_passive[node1] << " " << endl;
 
-			// Putting admittance in off diagonal elements.
-			for (int j = 0; j < junction_list[i].size(); ++j)
-			{	
-				node1 = junction_list[i][j];
+			if(IS_PERVASIVE_MATRIX){
+				// Putting admittance in off diagonal elements.
+				for (int j = 0; j < junction_list[i].size(); ++j)
+				{	
+					node1 = junction_list[i][j];
 
-				// Inducing passive effect to main diagonal elements
+					// Inducing passive effect to main diagonal elements
+					h_maindiag_passive[node1] += h_Ga[node1]*(1.0 - h_Ga[node1]/junction_sum);
+					
+					for (int k = j+1; k < junction_list[i].size(); ++k)
+					{
+						node2 = junction_list[i][k];
+
+						gi = h_Ga[node1];
+						gj = h_Ga[node2];
+						gij = (gi*gj)/junction_sum;
+
+						//cout << junction_sum << " " << gi[node1] << " " << gi[node2] << " " << admittance << endl;
+
+						// Pushing element and its symmetry.
+						non_zero_elements.push_back(make_pair(node1*num_comp+node2, -1*gij));
+						non_zero_elements.push_back(make_pair(node2*num_comp+node1, -1*gij));
+
+						if(abs(node2-node1) == 1) // left or right principal diagonal
+							tridiag_nnz += 2;
+						else
+							offdiag_nnz += 2;
+					}
+				}
+			}else{
+
+				node1 = junction_list[i][0];
 				h_maindiag_passive[node1] += h_Ga[node1]*(1.0 - h_Ga[node1]/junction_sum);
-				
-				for (int k = j+1; k < junction_list[i].size(); ++k)
+
+				for(int k=1;k<junction_list[i].size();++k)
 				{
 					node2 = junction_list[i][k];
 
 					gi = h_Ga[node1];
 					gj = h_Ga[node2];
 					gij = (gi*gj)/junction_sum;
-
-					//cout << junction_sum << " " << gi[node1] << " " << gi[node2] << " " << admittance << endl;
 
 					// Pushing element and its symmetry.
 					non_zero_elements.push_back(make_pair(node1*num_comp+node2, -1*gij));
@@ -350,9 +375,9 @@ void fill_matrix_using_junction(int num_comp, const vector<vector<int> > &juncti
 						tridiag_nnz += 2;
 					else
 						offdiag_nnz += 2;
+
 				}
 			}
-
 		}
 	}
 
@@ -464,6 +489,23 @@ void get_structure_from_neuron(char* file_name, int num_comp, vector< vector<int
 
 			//cout << child << " " << parent << endl;
 		}
+	}
+
+
+	// Re-numbering compartments
+	for(vector< vector<int> >::iterator it = junction_list.begin(); it != junction_list.end(); ++it){
+		for(vector<int>::iterator it1 = it->begin(); it1 != it->end() ; ++it1){
+			*it1 = num_comp-1-*it1;
+		}
+	}
+
+	// Reversing rows too.
+	vector<int> temp;
+	for (int i = 0; i < junction_list.size()/2; ++i)
+	{
+		temp = junction_list[i];
+		junction_list[i] = junction_list[num_comp-1-i];
+		junction_list[num_comp-1-i] = temp;
 	}
 
 	input_file.close();
